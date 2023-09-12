@@ -5,13 +5,12 @@ import os
 from dataclasses import dataclass, asdict
 from SALib.analyze import rbd_fast, hdmr, rsa
 import statsmodels.api as sm
-from scipy.stats import norm, gaussian_kde
-from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from pylab import figure
 from shapely.geometry import LineString
+
 import math
 from copulas.visualization import (
     scatter_2d,
@@ -33,11 +32,21 @@ from bokeh.plotting import figure, show, row
 from bokeh.layouts import gridplot
 from bokeh.models import (
     ColumnDataSource,
+    LabelSet,
     HoverTool,
     DataTable,
     TableColumn,
+    Div,
+    NumberFormatter,
+    Column,
+    CustomJS,
+    Select,
     BoxAnnotation,
+    VArea,
     HBar,
+    Legend,
+    LegendItem,
+    FuncTickFormatter,
     HTMLTemplateFormatter,
 )
 
@@ -182,6 +191,8 @@ class UncertaintyData:
         # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
         self.significance_level = 0.05
+        self.significant_conv_vars = []
+
         self.reliability_index = 0.0
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
@@ -276,6 +287,7 @@ class UncertaintyData:
         significant_df = sensitivity_data[
             sensitivity_data[data_column].ge(significance_level)
         ]
+        self.significant_conv_vars = significant_df.index.map(str).values
         return significant_df.index.map(str).values
 
     def find_influential_conv_parameters(self):
@@ -1047,15 +1059,20 @@ class InteractivePlot:
         """
         # Sort the pdf_df by the variable
         self.pdf_df.sort_values(self.copula.input_names)
-        # Get the start and end point of the uncertain space
-        design_range_start = self.uq_data.uncertainties_df[variable].min()
-        design_range_end = self.uq_data.uncertainties_df[variable].max()
-        design_value = self.uq_data.uncertainties_df[variable].mean()
-        # Check if it's an input for the MC or not, then use range from converged space instead of sample space.
-        if variable not in self.uq_data.input_names:
-            design_range_start = self.uq_data.converged_df[variable].min()
-            design_range_end = self.uq_data.converged_df[variable].max()
-            design_value = self.uq_data.converged_df[variable].mean()
+        # Get the start and end point of the uncertain space. Treat significant convergence variables differently to
+        # itertation variables.
+        if variable in self.uq_data.input_names:
+            design_range_start, design_range_end, design_value = (
+                self.uq_data.uncertainties_df[variable].min(),
+                self.uq_data.uncertainties_df[variable].max(),
+                self.uq_data.uncertainties_df[variable].mean(),
+            )
+        else:
+            design_range_start, design_range_end, design_value = (
+                self.uq_data.converged_df[variable].min(),
+                self.uq_data.converged_df[variable].max(),
+                self.uq_data.converged_df[variable].mean(),
+            )
 
         # Calculate probabilities. Divide uncertain space into intervals, sum probability in the intervals.
         num_intervals = self.num_intervals
@@ -1065,20 +1082,23 @@ class InteractivePlot:
             design_range_end,
             num_intervals,
         )
-        design_range_intervals = np.linspace(
-            design_range_start, design_range_end, num_intervals
-        )
         self.pdf_df[variable + "_interval"] = pd.cut(
             self.pdf_df[variable], bins=design_range_intervals, labels=False
         )
         # Sometimes intervals weren't integers
         self.pdf_df[variable + "_interval"] = pd.to_numeric(
             self.pdf_df[variable + "_interval"], errors="coerce"
-        ).astype("Int64")
+        )
+
+        # Check if the dtype is compatible with 'Int64' and cast if needed
+        if self.pdf_df[variable + "_interval"].dtype != "Int64":
+            self.pdf_df[variable + "_interval"] = self.pdf_df[
+                variable + "_interval"
+            ].astype("Int64")
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
         interval_probability = pd.Series(
-            0, index=pd.RangeIndex(len(design_range_intervals))
+            0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
         interval_probability.iloc[
             converged_intervals.index.values.astype(int)
@@ -1115,35 +1135,53 @@ class InteractivePlot:
         self.variable_data[variable] = variable_data
 
     def modify_data(self, variable_data):
+        """Convert variable data into a format for plotting graphs and tables. We want to look at how PROCESS
+        uses iteration variables to respond to changes in the uncertain values. This function looks for the range
+        of select variables that correspond to the intervals containing the design and optimal point respectively.
+        The mean is take of this range as an approximation for evaluating the delta between input and optimum.
+
+        :param variable_data: List of variable dataclasses
+        :type variable_data: List
+        :return: The results of UQ Data analysis, used for plotting Bokeh Tables and Graphs
+        :rtype: pandas.DataFrame
+        """
+        # Convert variable data into a DataFrame
         data_dict_list = [asdict(variable) for variable in variable_data.values()]
         data = pd.DataFrame(data_dict_list)
         data.set_index("name", inplace=True)
-        data["joint_input_probability"] = data["design_value_probability"].product()
-        data["joint_max_probability"] = data["max_probability"].product()
+        # Only use the significant convergence parameters for evaluating probability.
+        input_significant_conv_data = data.loc[
+            self.uq_data.significant_conv_vars, "design_value_probability"
+        ]
+        max_significant_conv_data = data.loc[
+            self.uq_data.significant_conv_vars, "max_probability"
+        ]
+        data["joint_input_probability"] = input_significant_conv_data.product()
+        data["joint_max_probability"] = max_significant_conv_data.product()
+        # Search for the range of variables of interest which correspond to the design value and max probability value.
         columns_to_filter = self.copula.input_names
-        input_filtered_df = filter_dataframe_by_columns_and_values(
+        design_filtered_df = filter_dataframe_by_columns_and_values(
             self.pdf_df, data, columns_to_filter, "design_value_index", self.uq_data.itv
         )
-        max_filtered_df = filter_dataframe_by_columns_and_values(
+        max_probability_filtered_df = filter_dataframe_by_columns_and_values(
             self.pdf_df,
             data,
             columns_to_filter,
             "max_probability_index",
             self.uq_data.itv,
         )
-        if input_filtered_df.shape[0] > 0:
-            data["design_mean"] = input_filtered_df.mean().round(3)
+        # Check if these dataframes are empty, this may be redundant now.
+        if design_filtered_df.shape[0] > 0:
+            data["design_mean"] = design_filtered_df.mean().round(3)
         else:
             data["design_mean"] = "Non-convergent"
 
-        if max_filtered_df.shape[0] > 0:
-            data["max_probability_mean"] = max_filtered_df.mean().round(3)
+        if max_probability_filtered_df.shape[0] > 0:
+            data["max_probability_mean"] = max_probability_filtered_df.mean().round(3)
         else:
             data["max_probability_mean"] = "Non-convergent"
-        # if input_filtered_df.shape[0] > 0 and max_filtered_df.shape[0] > 0:
+        # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
-        # else:
-        #     data["optimised_delta"] = "N/A"
 
         return data
 
@@ -1252,7 +1290,7 @@ class InteractivePlot:
 
         return p
 
-    def create_layout(self, variables):
+    def create_layout(self, variables, plot_graph=True, plot_table=True):
         """Create a bokeh layout with graphs to epxlain uncertain variables. Create a datatable which
         summarises findings"
 
@@ -1313,16 +1351,23 @@ class InteractivePlot:
         grid = gridplot(
             [self.p_list[i : i + num_columns] for i in range(0, num_plots, num_columns)]
         )
-        show(grid)
+        if plot_graph == True:
+            show(grid)
         plotting_data = self.plotting_data.round(3)
-        plotting_data = plotting_data.applymap(format_large_numbers)
+        plotting_data = plotting_data.map(format_large_numbers)
 
         source = ColumnDataSource(plotting_data)
-        data_table = DataTable(
-            source=source, columns=columns, autosize_mode="force_fit", width=800
-        )
 
-        show(data_table)
+        data_table = DataTable(
+            source=source,
+            columns=columns,
+            autosize_mode="force_fit",
+            width=800,
+            height_policy="auto",
+        )
+        # data_table.sizing_mode = "stretch_both"
+        if plot_table == True:
+            show(data_table)
 
 
 @dataclass
