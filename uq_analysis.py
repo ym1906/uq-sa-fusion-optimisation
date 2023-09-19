@@ -300,7 +300,6 @@ class UncertaintyData:
         significant_df = self.sumsq_sensitivity_df[
             self.sumsq_sensitivity_df["converged"].ge(self.significance_level)
         ]
-        print(significant_df)
         return significant_df.index.map(str).values
 
     def find_most_sensitive_interaction(self, parameters_to_search):
@@ -344,9 +343,6 @@ class UncertaintyData:
                     compression="infer",
                     index="true",
                 )
-
-        # print(mc_run_df[mc_run.index.duplicated(keep=False)])
-
         with open("result_05si.json", "w") as fp:
             json.dump(self.sens_dict, fp)
 
@@ -704,7 +700,6 @@ class UncertaintyData:
         self.sumsq_sensitivity_df = self.sumsq_sensitivity_df.sort_values(
             by="unconverged", ascending=False
         )
-        # print(self.sumsq_sensitivity_df)
 
     def regional_sensitivity_analysis(
         self,
@@ -779,13 +774,11 @@ class UncertaintyData:
         # Calculate cumulative distribution functions
         ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
         ecdf_conv = sm.distributions.ECDF(converged_fom_df)
-        print("ecdf first", ecdf_conv)
         # Bin the data
         x = np.linspace(min(uq_fom_df), max(uq_fom_df))
         ri_t = []
         y_unconv = ecdf_unconv(x)
         y_conv = ecdf_conv(x)
-        print("yconv", y_conv)
         # Plot the ecdf functions
         ax1.step(x, y_unconv, color="tab:red", label="Unconverged samples")
         ax1.step(x, y_conv, color="tab:blue", label="Converged samples")
@@ -1036,7 +1029,9 @@ class Copula:
 
 
 class InteractivePlot:
-    def __init__(self, UncertaintyData, Copula, num_intervals=10):
+    def __init__(
+        self, UncertaintyData, Copula, num_intervals=10, custom_data_point=None
+    ):
         self.num_intervals = num_intervals
         self.copula = Copula
         self.uq_data = UncertaintyData
@@ -1047,9 +1042,11 @@ class InteractivePlot:
         self.design_values_df = UncertaintyData.estimate_design_values(
             self.copula.input_names
         )
+        self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
         for var in self.copula.input_names:
             self.sort_data(var)
+
         self.plotting_data = self.modify_data(self.variable_data)
 
     def sort_data(self, variable):
@@ -1073,7 +1070,6 @@ class InteractivePlot:
                 self.uq_data.converged_df[variable].max(),
                 self.uq_data.converged_df[variable].mean(),
             )
-
         # Calculate probabilities. Divide uncertain space into intervals, sum probability in the intervals.
         num_intervals = self.num_intervals
         # Variable intervals
@@ -1089,7 +1085,6 @@ class InteractivePlot:
         self.pdf_df[variable + "_interval"] = pd.to_numeric(
             self.pdf_df[variable + "_interval"], errors="coerce"
         )
-
         # Check if the dtype is compatible with 'Int64' and cast if needed
         if self.pdf_df[variable + "_interval"].dtype != "Int64":
             self.pdf_df[variable + "_interval"] = self.pdf_df[
@@ -1116,7 +1111,24 @@ class InteractivePlot:
         interval_width = (design_range_intervals[-1] - design_range_intervals[0]) / len(
             design_range_intervals
         )
-
+        # Check if a custom_data_point is provided
+        if self.custom_data_point is not None:
+            if variable in self.custom_data_point.keys():
+                custom_data_point_index = np.digitize(
+                    self.custom_data_point[variable], design_range_intervals
+                )
+                custom_data_point_probability = interval_probability[
+                    custom_data_point_index
+                ]
+                custom_data_point_value = self.custom_data_point[variable]
+            else:
+                custom_data_point_value = None
+                custom_data_point_index = None
+                custom_data_point_probability = None
+        else:
+            custom_data_point_value = None
+            custom_data_point_index = None
+            custom_data_point_probability = None
         # Create variable dataclass and store it
         variable_data = uncertain_variable_data(
             name=variable,
@@ -1131,7 +1143,11 @@ class InteractivePlot:
             design_value_index=design_value_index,
             max_probability_index=max_probability_index,
             interval_width=interval_width,
+            custom_data_point=custom_data_point_value,
+            custom_data_point_index=custom_data_point_index,
+            custom_data_point_probability=custom_data_point_probability,
         )
+
         self.variable_data[variable] = variable_data
 
     def modify_data(self, variable_data):
@@ -1156,8 +1172,12 @@ class InteractivePlot:
         max_significant_conv_data = data.loc[
             self.uq_data.significant_conv_vars, "max_probability"
         ]
+        custom_significant_conv_data = data.loc[
+            self.uq_data.significant_conv_vars, "custom_data_point_probability"
+        ]
         data["joint_input_probability"] = input_significant_conv_data.product()
         data["joint_max_probability"] = max_significant_conv_data.product()
+        data["joint_custom_probability"] = custom_significant_conv_data.product()
         # Search for the range of variables of interest which correspond to the design value and max probability value.
         columns_to_filter = self.copula.input_names
         design_filtered_df = filter_dataframe_by_columns_and_values(
@@ -1170,6 +1190,13 @@ class InteractivePlot:
             "max_probability_index",
             self.uq_data.itv,
         )
+        custom_filtered_df = filter_dataframe_by_columns_and_values(
+            self.pdf_df,
+            data,
+            columns_to_filter,
+            "custom_data_point_index",
+            self.uq_data.itv,
+        )
         # Check if these dataframes are empty, this may be redundant now.
         if design_filtered_df.shape[0] > 0:
             data["design_mean"] = design_filtered_df.mean().round(3)
@@ -1180,8 +1207,14 @@ class InteractivePlot:
             data["max_probability_mean"] = max_probability_filtered_df.mean().round(3)
         else:
             data["max_probability_mean"] = "Non-convergent"
+        if custom_filtered_df.shape[0] > 0:
+            data["custom_data_point_mean"] = custom_filtered_df.mean().round(3)
+        else:
+            data["custom_data_point_mean"] = "Non-convergent"
         # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
+        if self.custom_data_point is not None:
+            data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
 
         return data
 
@@ -1338,7 +1371,28 @@ class InteractivePlot:
                 formatter=general_formatter,
             ),
         ]
-
+        if self.custom_data_point is not None:
+            columns.append(
+                TableColumn(
+                    field="custom_data_point_mean",
+                    title="Custom Point",
+                    formatter=general_formatter,
+                )
+            )
+            columns.append(
+                TableColumn(
+                    field="custom_delta",
+                    title="Custom Delta",
+                    formatter=general_formatter,
+                )
+            )
+            columns.append(
+                TableColumn(
+                    field="joint_custom_probability",
+                    title="Custom Probability",
+                    formatter=general_formatter,
+                )
+            )
         for var in variables:
             p = self.create_plot(var)
             input
@@ -1353,8 +1407,8 @@ class InteractivePlot:
         )
         if plot_graph == True:
             show(grid)
-        plotting_data = self.plotting_data.round(3)
-        plotting_data = plotting_data.map(format_large_numbers)
+        plotting_data = self.plotting_data
+        plotting_data = plotting_data.map(format_number)
 
         source = ColumnDataSource(plotting_data)
 
@@ -1362,7 +1416,7 @@ class InteractivePlot:
             source=source,
             columns=columns,
             autosize_mode="force_fit",
-            width=800,
+            width=1000,
             height_policy="auto",
         )
         # data_table.sizing_mode = "stretch_both"
@@ -1386,11 +1440,31 @@ class uncertain_variable_data:
     design_value_index: int
     max_probability_index: int
     interval_width: float
+    custom_data_point: float
+    custom_data_point_index: float
+    custom_data_point_probability: float
 
 
-def format_large_numbers(val):
-    if isinstance(val, (int, float)) and abs(val) >= 1e6:
-        return "{:.3e}".format(val)
+def format_number(
+    val,
+    threshold_small=0.001,
+    threshold_large=1e5,
+    format_small="{:.2e}",
+    format_large="{:.2f}",
+):
+    """
+    Format a number based on thresholds. If the absolute value of the number is less than
+    threshold_small, it will be formatted using `format_small`. If it's greater than or
+    equal to threshold_small and less than threshold_large, it will be formatted using
+    `format_large`. Otherwise, it will be formatted using `format_small`.
+    """
+    if isinstance(val, (int, float)):
+        if abs(val) < threshold_small:
+            return format_small.format(val)
+        elif abs(val) >= threshold_small and abs(val) < threshold_large:
+            return format_large.format(val)
+        else:
+            return format_small.format(val)
     else:
         return val
 
