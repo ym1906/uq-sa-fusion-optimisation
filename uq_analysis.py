@@ -1214,81 +1214,84 @@ class InteractivePlot:
         self.variable_data[variable] = variable_data
 
     def modify_data(self, variable_data):
-        """Convert variable data into a format for plotting graphs and tables. We want to look at how PROCESS
-        uses iteration variables to respond to changes in the uncertain values. This function looks for the range
-        of select variables that correspond to the intervals containing the design and optimal point respectively.
-        The mean is take of this range as an approximation for evaluating the delta between input and optimum.
-        :param variable_data: List of variable dataclasses
-        :type variable_data: List
-        :return: The results of UQ Data analysis, used for plotting Bokeh Tables and Graphs
-        :rtype: pandas.DataFrame
-        """
-        # Convert variable data into a DataFrame
-        data_dict_list = [asdict(variable) for variable in variable_data.values()]
-        data = pd.DataFrame(data_dict_list)
-        data.set_index("name", inplace=True)
-        # Only use the significant convergence parameters for evaluating probability.
-        input_significant_conv_data = data.loc[
-            self.uq_data.significant_conv_vars, "design_value_probability"
-        ]
-        max_significant_conv_data = data.loc[
-            self.uq_data.significant_conv_vars, "max_probability"
-        ]
-        custom_significant_conv_data = data.loc[
-            self.uq_data.significant_conv_vars, "custom_data_point_probability"
-        ]
-        data["joint_input_probability"] = input_significant_conv_data.product()
-        data["joint_max_probability"] = max_significant_conv_data.product()
+        """Convert variable data into a format for plotting graphs and tables.
 
-        # Search for the range of variables of interest which correspond to the design value and max probability value.
-        columns_to_filter = self.copula.input_names
-        design_filtered_df = filter_dataframe_by_columns_and_values(
-            self.pdf_df, data, columns_to_filter, "design_value_index", self.uq_data.itv
+        Parameters:
+        - variable_data: List of variable data classes.
+
+        Returns:
+        - The results of UQ Data analysis, used for plotting Bokeh Tables and Graphs.
+        """
+        data = self._convert_variable_data_to_dataframe(variable_data)
+
+        # Joint probability calculations
+        self._calculate_joint_probabilities(data)
+
+        # Filter dataframes based on design and max probability values
+        design_filtered_df = self._filter_dataframe_by_index(data, "design_value_index")
+        max_probability_filtered_df = self._filter_dataframe_by_index(
+            data, "max_probability_index"
         )
-        max_probability_filtered_df = filter_dataframe_by_columns_and_values(
-            self.pdf_df,
-            data,
-            columns_to_filter,
-            "max_probability_index",
-            self.uq_data.itv,
-        )
+
+        # Custom point calculations
         if self.custom_data_point is not None:
-            data["joint_custom_probability"] = custom_significant_conv_data.product()
-            custom_filtered_df = filter_dataframe_by_columns_and_values(
-                self.pdf_df,
-                data,
-                columns_to_filter,
-                "custom_data_point_index",
-                self.uq_data.itv,
+            self._calculate_custom_joint_probability(data)
+            custom_filtered_df = self._filter_dataframe_by_index(
+                data, "custom_data_point_index"
             )
 
             if custom_filtered_df.shape[0] > 0:
                 data["custom_data_point_mean"] = custom_filtered_df.mean()
             else:
                 data["custom_data_point_mean"] = 0.0
-                print(
-                    "Custom Point is non-convergent. All values are set to zero. (Check all variables in custom point are in UncertaintyData.itv)"
-                )
+                print("Custom Point is non-convergent. All values are set to zero.")
+
             data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
-        # Check if these dataframes are empty, this may be redundant now.
-        if design_filtered_df.shape[0] > 0:
-            data["design_mean"] = design_filtered_df.mean()
 
-        else:
-            data["design_mean"] = 0.0
-
-        if max_probability_filtered_df.shape[0] > 0:
-            data["max_probability_mean"] = max_probability_filtered_df.mean()
-        else:
-            print(
-                "There may be insufficient synthetic data points for this many input variables. Try generating more copula samples."
-            )
-            data["max_probability_mean"] = 0.0
+        # Design and max probability means
+        data["design_mean"] = (
+            design_filtered_df.mean() if design_filtered_df.shape[0] > 0 else 0.0
+        )
+        data["max_probability_mean"] = (
+            max_probability_filtered_df.mean()
+            if max_probability_filtered_df.shape[0] > 0
+            else 0.0
+        )
 
         # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
 
         return data
+
+    def _convert_variable_data_to_dataframe(self, variable_data):
+        """Convert variable data into a DataFrame."""
+        data_dict_list = [asdict(variable) for variable in variable_data.values()]
+        data = pd.DataFrame(data_dict_list)
+        data.set_index("name", inplace=True)
+        return data
+
+    def _calculate_joint_probabilities(self, data):
+        """Calculate joint probabilities."""
+        data["joint_input_probability"] = data.loc[
+            self.uq_data.significant_conv_vars, "design_value_probability"
+        ].product()
+        data["joint_max_probability"] = data.loc[
+            self.uq_data.significant_conv_vars, "max_probability"
+        ].product()
+
+    def _filter_dataframe_by_index(self, data, index_column):
+        """Filter dataframe based on the given index_column."""
+        columns_to_filter = self.copula.input_names
+        return filter_dataframe_by_columns_and_values(
+            self.pdf_df, data, columns_to_filter, index_column, self.uq_data.itv
+        )
+
+    def _calculate_custom_joint_probability(self, data):
+        """Calculate joint probability for custom data points."""
+        custom_significant_conv_data = data.loc[
+            self.uq_data.significant_conv_vars, "custom_data_point_probability"
+        ]
+        data["joint_custom_probability"] = custom_significant_conv_data.product()
 
     def create_plot(self, uncertain_variable):
         """Create some plots to show how the probability of convergence is deconvolved into the uncertain space for each variable.
