@@ -20,6 +20,7 @@ from copulas.visualization import (
 from copulas.multivariate import GaussianMultivariate, VineCopula
 from copulas.univariate import (
     ParametricType,
+    BoundedType,
     Univariate,
     GaussianUnivariate,
     GaussianKDE,
@@ -133,8 +134,11 @@ class UncertaintyData:
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+        # self.uncertainties_df["pnetelin"] = self.sampled_vars_df["pnetelin"]
         # self.uncertainties_df = self.uncertainties_df.head(100)
         self.input_names = self.sampled_vars_df.columns.tolist()
+        if "pnetelin" in self.input_names:
+            self.input_names.remove("pnetelin")
         self.itv = [
             "bt",
             "te",
@@ -148,7 +152,7 @@ class UncertaintyData:
             "betalim",
             "coheof",
             "cohbop",
-            "gapoh",
+            # "gapoh",
             "fvsbrnni",
             "itvar019",
             "itvar020",
@@ -160,13 +164,14 @@ class UncertaintyData:
             "thwcndut",
             "fcutfsu",
             "cpttf",
-            "gapds",
+            # "gapds",
             "plhthresh",
             "tmargtf",
             "tmargoh",
             "oh_steel_frac",
             "pdivt",
             "powfmw",
+            "rmajor",
         ]
         # self.input_names.extend(itv)
         self.sampled_vars_to_plot = []
@@ -873,9 +878,13 @@ class UncertaintyData:
 
 
 class Copula:
-    """Copula class. Creates a copula from input data and has functions to plot."""
+    """Copula class. Creates a copula from input data and has functions to plot.
+    Specify if you want to use bounded or unbounded distributions. Try unbounded
+    initially, and with few input variables as there is a wider selection of
+    distributions. With higher number of input variables try bounded to contain
+    infinites."""
 
-    def __init__(self, input_data, input_names=None):
+    def __init__(self, input_data, input_names=None, copula_type="unbounded"):
         self.input_data = input_data
         if input_names is not None:
             self.input_data = self.input_data[input_names]
@@ -885,9 +894,13 @@ class Copula:
         self.pdf = []
         self.cdf = []
         self.synthetic_data = pd.DataFrame()
-        univariate = Univariate(parametric=ParametricType.PARAMETRIC)
-
-        self.copula = GaussianMultivariate()  # distribution=univariate
+        bounded_univariate = Univariate(
+            bounded=True,
+        )
+        if copula_type == "unbounded":
+            self.copula = GaussianMultivariate()
+        elif copula_type == "bounded":
+            self.copula = GaussianMultivariate(distribution=bounded_univariate)
         self.copula_dict = {}
 
     def calculate_copula(
@@ -1029,39 +1042,58 @@ class Copula:
 
 
 class InteractivePlot:
-    def __init__(
-        self, UncertaintyData, Copula, num_intervals=10, custom_data_point=None
-    ):
+    """A tool for plotting UQ and Copula data for analysis."""
+
+    def __init__(self, uq_data, copula, num_intervals=10, custom_data_point=None):
+        """
+        Initialize the InteractivePlot instance.
+
+        Parameters:
+        - uq_data: UQ data for analysis.
+        - copula: Copula instance for modeling dependencies.
+        - num_intervals: Number of intervals for probability calculations.
+        - custom_data_point: Custom data point for analysis.
+        """
+
+        # 1. Parameter Validation
+        if not isinstance(uq_data, UncertaintyData):
+            raise ValueError("uq_data must be of type UQDataType.")
+        if not isinstance(copula, Copula):
+            raise ValueError("copula must be an instance of CopulaType.")
+
+        # 2. Attribute Initialization
         self.num_intervals = num_intervals
-        self.copula = Copula
-        self.uq_data = UncertaintyData
-        self.pdf_df = Copula.create_pdf_df(self.copula.input_names)
-        self.p_list = []
-        self.variable_data = {}
-        self.height_width = 350
-        self.design_values_df = UncertaintyData.estimate_design_values(
-            self.copula.input_names
-        )
+        self.copula = copula
+        self.uq_data = uq_data
+        self.plot_list = []  # list of plots.
+        self.variable_data = {}  # list of variable data classes.
+        self.plot_height_width = 350  # height and width of plots.
+        self.design_values_df = uq_data.estimate_design_values(copula.input_names)
+        self.pdf_df = self.copula.create_pdf_df(self.copula.input_names)
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
-        for var in self.copula.input_names:
-            self.sort_data(var)
 
+        # 3. Calculate interval probabilities for each variable
+        for var in self.copula.input_names:
+            self.calculate_variable_probabilities(var)
+
+        # 4. Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
 
-    def sort_data(self, variable):
-        """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
-        The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
-        This value is normalised, which gives the probability that a converged point has come from this interval.
-        """
-        # Sort the pdf_df by the variable
-        self.pdf_df.sort_values(self.copula.input_names)
-        # Get the start and end point of the uncertain space. Treat significant convergence variables differently to
-        # itertation variables.
+    def _sort_pdf_df_by_variable(self, variable: str):
+        self.pdf_df.sort_values(variable, inplace=True)
+
+    def _get_design_range_and_value(self, variable: str):
         if variable in self.uq_data.input_names:
             design_range_start, design_range_end, design_value = (
-                self.uq_data.uncertainties_df[variable].min(),
-                self.uq_data.uncertainties_df[variable].max(),
+                min(
+                    self.uq_data.uncertainties_df[variable].min(),
+                    self.copula.synthetic_data[variable].min(),
+                ),
+                max(
+                    self.uq_data.uncertainties_df[variable].max(),
+                    self.copula.synthetic_data[variable].max(),
+                ),
                 self.uq_data.uncertainties_df[variable].mean(),
             )
         else:
@@ -1070,26 +1102,56 @@ class InteractivePlot:
                 self.uq_data.converged_df[variable].max(),
                 self.uq_data.converged_df[variable].mean(),
             )
-        # Calculate probabilities. Divide uncertain space into intervals, sum probability in the intervals.
-        num_intervals = self.num_intervals
+        return design_range_start, design_range_end, design_value
+
+    def _add_interval_column(self, variable: str, design_range_intervals):
+        interval_column_name = variable + "_interval"
+        self.pdf_df[interval_column_name] = pd.cut(
+            self.pdf_df[variable], bins=design_range_intervals, labels=False
+        )
+        self.pdf_df[interval_column_name] = pd.to_numeric(
+            self.pdf_df[interval_column_name], errors="coerce"
+        )
+        if self.pdf_df[interval_column_name].dtype != "Int64":
+            self.pdf_df[interval_column_name] = self.pdf_df[
+                interval_column_name
+            ].astype("Int64")
+
+    def _calculate_interval_probability(self, design_range_intervals, variable: str):
+        converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
+        interval_probability = pd.Series(
+            0.0, index=pd.RangeIndex(len(design_range_intervals))
+        )
+        interval_probability.iloc[
+            converged_intervals.index.values.astype(int)
+        ] = converged_intervals.values
+        interval_probability /= interval_probability.sum()
+        return interval_probability
+
+    def calculate_variable_probabilities(self, variable: str):
+        """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
+        The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
+        This value is normalised, which gives the probability that a converged point has come from this interval.
+        """
+        # Sort the pdf_df by the variable
+        self._sort_pdf_df_by_variable(variable)
+        (
+            design_range_start,
+            design_range_end,
+            design_value,
+        ) = self._get_design_range_and_value(variable)
+
         # Variable intervals
         design_range_intervals = np.linspace(
             design_range_start,
             design_range_end,
-            num_intervals,
+            self.num_intervals,
         )
-        self.pdf_df[variable + "_interval"] = pd.cut(
-            self.pdf_df[variable], bins=design_range_intervals, labels=False
+        self._add_interval_column(variable, design_range_intervals)
+        interval_probability = self._calculate_interval_probability(
+            design_range_intervals, variable
         )
-        # Sometimes intervals weren't integers
-        self.pdf_df[variable + "_interval"] = pd.to_numeric(
-            self.pdf_df[variable + "_interval"], errors="coerce"
-        )
-        # Check if the dtype is compatible with 'Int64' and cast if needed
-        if self.pdf_df[variable + "_interval"].dtype != "Int64":
-            self.pdf_df[variable + "_interval"] = self.pdf_df[
-                variable + "_interval"
-            ].astype("Int64")
+
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
         interval_probability = pd.Series(
@@ -1130,6 +1192,7 @@ class InteractivePlot:
             custom_data_point_index = None
             custom_data_point_probability = None
         # Create variable dataclass and store it
+
         variable_data = uncertain_variable_data(
             name=variable,
             design_range_start=design_range_start,
@@ -1155,7 +1218,6 @@ class InteractivePlot:
         uses iteration variables to respond to changes in the uncertain values. This function looks for the range
         of select variables that correspond to the intervals containing the design and optimal point respectively.
         The mean is take of this range as an approximation for evaluating the delta between input and optimum.
-
         :param variable_data: List of variable dataclasses
         :type variable_data: List
         :return: The results of UQ Data analysis, used for plotting Bokeh Tables and Graphs
@@ -1177,7 +1239,7 @@ class InteractivePlot:
         ]
         data["joint_input_probability"] = input_significant_conv_data.product()
         data["joint_max_probability"] = max_significant_conv_data.product()
-        data["joint_custom_probability"] = custom_significant_conv_data.product()
+
         # Search for the range of variables of interest which correspond to the design value and max probability value.
         columns_to_filter = self.copula.input_names
         design_filtered_df = filter_dataframe_by_columns_and_values(
@@ -1190,31 +1252,41 @@ class InteractivePlot:
             "max_probability_index",
             self.uq_data.itv,
         )
-        custom_filtered_df = filter_dataframe_by_columns_and_values(
-            self.pdf_df,
-            data,
-            columns_to_filter,
-            "custom_data_point_index",
-            self.uq_data.itv,
-        )
+        if self.custom_data_point is not None:
+            data["joint_custom_probability"] = custom_significant_conv_data.product()
+            custom_filtered_df = filter_dataframe_by_columns_and_values(
+                self.pdf_df,
+                data,
+                columns_to_filter,
+                "custom_data_point_index",
+                self.uq_data.itv,
+            )
+
+            if custom_filtered_df.shape[0] > 0:
+                data["custom_data_point_mean"] = custom_filtered_df.mean()
+            else:
+                data["custom_data_point_mean"] = 0.0
+                print(
+                    "Custom Point is non-convergent. All values are set to zero. (Check all variables in custom point are in UncertaintyData.itv)"
+                )
+            data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
         # Check if these dataframes are empty, this may be redundant now.
         if design_filtered_df.shape[0] > 0:
-            data["design_mean"] = design_filtered_df.mean().round(3)
+            data["design_mean"] = design_filtered_df.mean()
+
         else:
-            data["design_mean"] = "Non-convergent"
+            data["design_mean"] = 0.0
 
         if max_probability_filtered_df.shape[0] > 0:
-            data["max_probability_mean"] = max_probability_filtered_df.mean().round(3)
+            data["max_probability_mean"] = max_probability_filtered_df.mean()
         else:
-            data["max_probability_mean"] = "Non-convergent"
-        if custom_filtered_df.shape[0] > 0:
-            data["custom_data_point_mean"] = custom_filtered_df.mean().round(3)
-        else:
-            data["custom_data_point_mean"] = "Non-convergent"
+            print(
+                "There may be insufficient synthetic data points for this many input variables. Try generating more copula samples."
+            )
+            data["max_probability_mean"] = 0.0
+
         # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
-        if self.custom_data_point is not None:
-            data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
 
         return data
 
@@ -1293,8 +1365,8 @@ class InteractivePlot:
 
         p = figure(
             x_range=(uvd.design_range_start * 0.95, uvd.design_range_end * 1.05),
-            height=self.height_width,
-            width=self.height_width,
+            height=self.plot_height_width,
+            width=self.plot_height_width,
             title="Convergance Probability",
         )
         p.xaxis.axis_label = uvd.name
@@ -1372,19 +1444,21 @@ class InteractivePlot:
             ),
         ]
         if self.custom_data_point is not None:
-            columns.append(
+            columns.insert(
+                4,
                 TableColumn(
                     field="custom_data_point_mean",
                     title="Custom Point",
                     formatter=general_formatter,
-                )
+                ),
             )
-            columns.append(
+            columns.insert(
+                5,
                 TableColumn(
                     field="custom_delta",
                     title="Custom Delta",
                     formatter=general_formatter,
-                )
+                ),
             )
             columns.append(
                 TableColumn(
@@ -1396,14 +1470,17 @@ class InteractivePlot:
         for var in variables:
             p = self.create_plot(var)
             input
-            self.p_list.append(p)
+            self.plot_list.append(p)
 
-        num_plots = len(self.p_list)
+        num_plots = len(self.plot_list)
         num_columns = 3
         num_rows = math.ceil(num_plots / num_columns)
         # Create a grid layout dynamically
         grid = gridplot(
-            [self.p_list[i : i + num_columns] for i in range(0, num_plots, num_columns)]
+            [
+                self.plot_list[i : i + num_columns]
+                for i in range(0, num_plots, num_columns)
+            ]
         )
         if plot_graph == True:
             show(grid)
@@ -1447,9 +1524,9 @@ class uncertain_variable_data:
 
 def format_number(
     val,
-    threshold_small=0.001,
+    threshold_small=0.1,
     threshold_large=1e5,
-    format_small="{:.2e}",
+    format_small="{:.3e}",
     format_large="{:.2f}",
 ):
     """
@@ -1488,7 +1565,6 @@ def filter_dataframe_by_columns_and_values(
         - pd.DataFrame: A new DataFrame containing rows where the specified columns match the corresponding values.
     """
     filter_condition = pd.Series(True, index=dataframe.index)
-
     for column in columns_to_filter:
         if column in iteration_variables:
             pass
@@ -1497,7 +1573,6 @@ def filter_dataframe_by_columns_and_values(
                 dataframe[column + "_interval"]
                 == interval_data.loc[column][value_to_filter]
             )
-
     filtered_df = dataframe[filter_condition]
 
     return filtered_df
