@@ -1301,19 +1301,21 @@ class InteractivePlot:
         The probabilities of the variable should be multiplied to find the joint probability.
         The grey grid is used to plot the uncertain space.
 
-        :param uncertain_variable_data: DataClass containing relevant data for each uncertain variable
-        :type uncertain_variable_data: DataClass
+        :param uncertain_variable: Uncertain variable to plot
+        :type uncertain_variable: str
         :return: A bokeh figure
         :rtype: Bokeh Figure
         """
-        # Uncertain Variable Data (uvd)
-        uvd = self.plotting_data.loc[uncertain_variable]
+        # Uncertain Variable Data (uncertain_variable_data)
+        uncertain_variable_data = self.plotting_data.loc[uncertain_variable]
+        DESIGN_RANGE_START_FACTOR = 0.95
+        DESIGN_RANGE_END_FACTOR = 1.05
 
         # Plot input variable lines
         design_value_box = BoxAnnotation(
-            left=uvd.design_value,
-            right=uvd.design_value,
-            top=uvd.design_value_probability,
+            left=uncertain_variable_data.design_value,
+            right=uncertain_variable_data.design_value,
+            top=uncertain_variable_data.design_value_probability,
             bottom=0.0,
             line_color="red",
             line_width=2,
@@ -1322,20 +1324,20 @@ class InteractivePlot:
             name="Design Point Value",
         )
         design_value_probability_box = BoxAnnotation(
-            left=uvd.design_range_start,
-            right=uvd.design_value,
-            top=uvd.design_value_probability,
-            bottom=uvd.design_value_probability,
+            left=uncertain_variable_data.design_range_start,
+            right=uncertain_variable_data.design_value,
+            top=uncertain_variable_data.design_value_probability,
+            bottom=uncertain_variable_data.design_value_probability,
             line_color="red",
             line_width=2,
             line_alpha=1.0,
             line_dash="dashed",
         )
         sample_space = HBar(
-            y=uvd.max_probability * 0.5,
-            right=uvd.design_range_end,
-            left=uvd.design_range_start,
-            height=uvd.max_probability,
+            y=uncertain_variable_data.max_probability * 0.5,
+            right=uncertain_variable_data.design_range_end,
+            left=uncertain_variable_data.design_range_start,
+            height=uncertain_variable_data.max_probability,
             fill_alpha=0.1,
             fill_color="grey",
             line_alpha=0.2,
@@ -1345,9 +1347,9 @@ class InteractivePlot:
         )
         # Plot max pdf lines
         max_var_box = BoxAnnotation(
-            left=uvd.max_probability_value,
-            right=uvd.max_probability_value,
-            top=uvd.max_probability,
+            left=uncertain_variable_data.max_probability_value,
+            right=uncertain_variable_data.max_probability_value,
+            top=uncertain_variable_data.max_probability,
             bottom=0.0,
             line_color="limegreen",
             line_width=2,
@@ -1356,10 +1358,10 @@ class InteractivePlot:
             name="Max PDF value",
         )
         max_probability_box = BoxAnnotation(
-            left=uvd.design_range_start,
-            right=uvd.max_probability_value,
-            top=uvd.max_probability,
-            bottom=uvd.max_probability,
+            left=uncertain_variable_data.design_range_start,
+            right=uncertain_variable_data.max_probability_value,
+            top=uncertain_variable_data.max_probability,
+            bottom=uncertain_variable_data.max_probability,
             line_color="limegreen",
             line_width=2,
             line_alpha=1.0,
@@ -1367,19 +1369,25 @@ class InteractivePlot:
         )
 
         p = figure(
-            x_range=(uvd.design_range_start * 0.95, uvd.design_range_end * 1.05),
+            x_range=(
+                uncertain_variable_data.design_range_start * DESIGN_RANGE_START_FACTOR,
+                uncertain_variable_data.design_range_end * DESIGN_RANGE_END_FACTOR,
+            ),
             height=self.plot_height_width,
             width=self.plot_height_width,
             title="Convergance Probability",
         )
-        p.xaxis.axis_label = uvd.name
+        p.xaxis.axis_label = uncertain_variable_data.name
         p.yaxis.axis_label = "Normalised Probability"
         p.add_glyph(sample_space)
-        vbar = p.vbar(
-            x=uvd.design_range_intervals,
-            top=uvd.interval_probability,
-            width=(uvd.design_range_intervals[-1] - uvd.design_range_intervals[0])
-            / len(uvd.design_range_intervals),
+        vert_bar_plot = p.vbar(
+            x=uncertain_variable_data.design_range_intervals,
+            top=uncertain_variable_data.interval_probability,
+            width=(
+                uncertain_variable_data.design_range_intervals[-1]
+                - uncertain_variable_data.design_range_intervals[0]
+            )
+            / len(uncertain_variable_data.design_range_intervals),
             fill_color="cornflowerblue",
         )
         p.add_layout(design_value_box)
@@ -1390,20 +1398,44 @@ class InteractivePlot:
             HoverTool(
                 tooltips=[
                     ("Probability", "@top{0.000}"),
-                    (uvd.name, "@x{0.000}"),
+                    (uncertain_variable_data.name, "@x{0.000}"),
                 ],
-                renderers=[vbar],
+                renderers=[vert_bar_plot],
             )
         )
 
         return p
 
-    def create_layout(self, variables, plot_graph=True, plot_table=True):
-        """Create a bokeh layout with graphs to epxlain uncertain variables. Create a datatable which
-        summarises findings"
+    def create_graph_grid(self, variables):
+        """Create a grid of graphs which plot the probability
+        intervals for each input variable.
 
-        :param variables: Variables which form the Copula
-        :type variables: List
+        :param variables: Copula variables.
+        :type variables: List (str)
+        :return: Grid of bokeh graphs
+        :rtype: bokeh.gridplot
+        """
+        for var in variables:
+            p = self.create_plot(var)
+            input
+            self.plot_list.append(p)
+
+        num_plots = len(self.plot_list)
+        num_columns = 3
+        # Create a grid layout dynamically
+        probability_vbar_grid = gridplot(
+            [
+                self.plot_list[i : i + num_columns]
+                for i in range(0, num_plots, num_columns)
+            ]
+        )
+        return probability_vbar_grid
+
+    def create_datatable(self, variables):
+        """Create a datatable which summarises findings from the copula."
+
+        :param variables: Copula variables
+        :type variables: List(str)
         """
         general_formatter = HTMLTemplateFormatter(
             template='<span style="color: black;"><%- value %></span>'
@@ -1470,26 +1502,9 @@ class InteractivePlot:
                     formatter=general_formatter,
                 )
             )
-        for var in variables:
-            p = self.create_plot(var)
-            input
-            self.plot_list.append(p)
 
-        num_plots = len(self.plot_list)
-        num_columns = 3
-        num_rows = math.ceil(num_plots / num_columns)
-        # Create a grid layout dynamically
-        grid = gridplot(
-            [
-                self.plot_list[i : i + num_columns]
-                for i in range(0, num_plots, num_columns)
-            ]
-        )
-        if plot_graph == True:
-            show(grid)
         plotting_data = self.plotting_data
         plotting_data = plotting_data.map(format_number)
-
         source = ColumnDataSource(plotting_data)
 
         data_table = DataTable(
@@ -1499,9 +1514,8 @@ class InteractivePlot:
             width=1000,
             height_policy="auto",
         )
-        # data_table.sizing_mode = "stretch_both"
-        if plot_table == True:
-            show(data_table)
+
+        return data_table
 
 
 @dataclass
