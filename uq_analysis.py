@@ -10,8 +10,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from pylab import figure
 from shapely.geometry import LineString
-
-import math
 from copulas.visualization import (
     scatter_2d,
     compare_2d,
@@ -33,73 +31,13 @@ from bokeh.plotting import figure, show, row
 from bokeh.layouts import gridplot
 from bokeh.models import (
     ColumnDataSource,
-    LabelSet,
     HoverTool,
     DataTable,
     TableColumn,
-    Div,
-    NumberFormatter,
-    Column,
-    CustomJS,
-    Select,
     BoxAnnotation,
-    VArea,
     HBar,
-    Legend,
-    LegendItem,
-    FuncTickFormatter,
     HTMLTemplateFormatter,
 )
-
-
-def parse_args(args):
-    """Parse supplied arguments.
-
-    :param args: arguments to parse
-    :type args: list, None
-    :return: parsed arguments
-    :rtype: Namespace
-    """
-    parser = argparse.ArgumentParser(
-        description="Calulate sensitivity analysis indices for Monte Carlo runs of PROCESS."
-    )
-
-    parser.add_argument(
-        "-iv",
-        "--input_sampled_vars",
-        default="param_values.h5",
-        help="input hdf5 file with sample points (default=param_values.h5)",
-    )
-
-    parser.add_argument(
-        "-uf",
-        "--uq_folder",
-        default="uq_data_folder",
-        help="Folder containing all UQ files",
-    )
-
-    parser.add_argument(
-        "-f",
-        "--configfile",
-        default="config_evaluate_uncertainties.json",
-        help="configuration file",
-    )
-
-    parser.add_argument(
-        "-iu",
-        "--input_uncertainty",
-        default="uncertainties_data.h5",
-        help="input hdf5 file with uncertainty data (default=param_values.h5)",
-    )
-
-    parser.add_argument(
-        "-fom",
-        "--figure_of_merit",
-        default="rmajor",
-        help="figure of merit, must be pulled from input uncertainty (default=param_values.h5)",
-    )
-
-    return parser.parse_args(args)
 
 
 class UncertaintyData:
@@ -1595,15 +1533,6 @@ def filter_dataframe_by_columns_and_values(
     return filtered_df
 
 
-def main(args=None):
-    args = parse_args(args)
-    uq_data = UncertaintyData(args.uq_folder, args.figure_of_merit)
-    uq_data.calculate_sensitivity()
-    uq_data.calculate_reliability()
-    uq_data.configure_data_for_plotting()
-    uq_data.plot_scatter_plot(plot_unconverged=False)
-
-
 def unique_cols(df):
     """Find columns which are not all the same value.
 
@@ -1614,7 +1543,3 @@ def unique_cols(df):
     """
     a = df.to_numpy()
     return (a[0] == a).all(0)
-
-
-if __name__ == "__main__":
-    main()
