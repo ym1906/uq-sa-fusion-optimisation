@@ -1161,30 +1161,53 @@ class InteractivePlot:
         - The results of UQ Data analysis, used for plotting Bokeh Tables and Graphs.
         """
         data = self._convert_variable_data_to_dataframe(variable_data)
-
         # Joint probability calculations
         self._calculate_joint_probabilities(data)
 
         # Filter dataframes based on design and max probability values
-        design_filtered_df = self._filter_dataframe_by_index(data, "design_value_index")
-        max_probability_filtered_df = self._filter_dataframe_by_index(
-            data, "max_probability_index"
+        design_filtered_df = self._filter_dataframe_by_index(
+            data, "design_value_index", self.copula.input_names
         )
+        max_probability_filtered_df = self._filter_dataframe_by_index(
+            data, "max_probability_index", self.copula.input_names
+        )
+
+        def modify_row(row):
+            row["custom_data_point_index"] = np.digitize(
+                row["custom_data_point_mean"], row["design_range_intervals"]
+            )
+
+            if row["custom_data_point_index"] < len(row["interval_probability"]):
+                row["custom_data_point_probability"] = row["interval_probability"][
+                    row["custom_data_point_index"]
+                ]
+            else:
+                # Handle the case where the index is out of bounds
+                row["custom_data_point_probability"] = np.nan
+
+            row["custom_data_point_value"] = row["custom_data_point"]
+
+            return row
 
         # Custom point calculations
         if self.custom_data_point is not None:
-            self._calculate_custom_joint_probability(data)
+            # Filter the data by the given custom points. Note: if a custom point is not
+            # given for each input variable the probability can't be directly compared to
+            # design or optimised probability (probability will be greater the fewer points
+            # provided)
             custom_filtered_df = self._filter_dataframe_by_index(
-                data, "custom_data_point_index"
+                data, "custom_data_point_index", self.custom_data_point.keys()
             )
-
             if custom_filtered_df.shape[0] > 0:
                 data["custom_data_point_mean"] = custom_filtered_df.mean()
             else:
                 data["custom_data_point_mean"] = 0.0
                 print("Custom Point is non-convergent. All values are set to zero.")
-
             data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
+            data = data.apply(modify_row, axis=1)
+
+            # print(data)
+            self._calculate_custom_joint_probability(data)
 
         # Design and max probability means
         data["design_mean"] = (
@@ -1217,9 +1240,8 @@ class InteractivePlot:
             self.uq_data.significant_conv_vars, "max_probability"
         ].product()
 
-    def _filter_dataframe_by_index(self, data, index_column):
+    def _filter_dataframe_by_index(self, data, index_column, columns_to_filter):
         """Filter dataframe based on the given index_column."""
-        columns_to_filter = self.copula.input_names
         return filter_dataframe_by_columns_and_values(
             self.pdf_df, data, columns_to_filter, index_column, self.uq_data.itv
         )
