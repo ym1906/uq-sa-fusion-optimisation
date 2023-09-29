@@ -354,7 +354,7 @@ class UncertaintyData:
         ax.set_xlabel("Influence on convergance", fontsize=20)
         ax.set_ylabel("PROCESS parameter", fontsize=20)
         ax.fill_betweenx(
-            y=[-0.5, len(self.sensitivity_df)],
+            y=[-0.5, len(self.sumsq_sensitivity_df)],
             x1=0,
             x2=self.significance_level,
             color="grey",
