@@ -8,6 +8,9 @@ import statsmodels.api as sm
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import seaborn as sns
+import networkx as nx
+from matplotlib.lines import Line2D
 from pylab import figure
 from shapely.geometry import LineString
 from copulas.visualization import (
@@ -787,33 +790,6 @@ class UncertaintyData:
         ax1.grid(axis="both")
         # plt.savefig("plots/" + figure_of_merit + "ecdf.svg", bbox_inches="tight")
 
-    def parallel_plot(self):
-        """Parallel plots are used to display paths to convergence. Lines track from one parameter to the next.
-        This allows you to look for paths through the parameters which lead to convergence.
-        """
-        minValue = -24.0
-        maxValue = -8.0
-        # vtp=variables to plot
-        vtp = [
-            "etath",
-            "kappa",
-        ]
-        input_sample = ot.Sample.BuildFromDataFrame(self.uncertainties_df[vtp])
-        fom_sample_np = self.uncertainties_df["sqsumsq"].to_numpy()
-        print(fom_sample_np)
-        fom_sample = ot.Sample([[v] for v in fom_sample_np])
-        quantileScale = False
-        graphCobweb = ot.VisualTest.DrawParallelCoordinates(
-            input_sample,
-            fom_sample,
-            minValue,
-            maxValue,
-            "red",
-            quantileScale,
-        )
-        graphCobweb.setLegendPosition("bottomright")
-        view = viewer.View(graphCobweb, figure_kw={"figsize": (32, 18)})
-
 
 class Copula:
     """Copula class. Creates a copula from input data and has functions to plot.
@@ -865,7 +841,7 @@ class Copula:
         # Sample from the copula to create synthetic data.
         self.synthetic_data = self.copula.sample(synthetic_sample_size)
 
-    def print_copula_data(self):
+    def copula_data_dict(self):
         """Print some parameters which describe the copula. The correlation matrix indicates
         which parameters are influencing each other. The distribution type tells you which fit
         was applied to each parameter.
@@ -873,8 +849,109 @@ class Copula:
 
         # Output the copula parameters to a dict and print some of them.
         self.copula_dict = self.copula.to_dict()
-        print(self.copula_dict)
-        print("Correlation matrix", self.copula_dict["correlation"])
+
+    def correlation_matrix(self):
+        """Retrieve the correlation matrix and affix the variable names as column and index.
+
+        :return: correlation_df
+        :rtype: pandas.dataframe
+        """
+        correlation_df = pd.DataFrame(
+            self.copula_dict["correlation"],
+            columns=self.copula_dict["columns"],
+            index=self.copula_dict["columns"],
+        )
+        return correlation_df
+
+    def plot_correlation_matrix(self, correlation_matrix):
+        num_variables = len(self.copula_dict["columns"])
+        figsize = (min(12, num_variables), min(10, num_variables))
+
+        plt.figure(figsize=figsize)
+        sns.heatmap(self.correlation_matrix(), annot=True, cmap="coolwarm", fmt=".2f")
+        plt.show()
+
+    def plot_network(
+        self, correlation_matrix=None, threshold=0.1, variables=None, figsize=(10, 10)
+    ):
+        if correlation_matrix is None:
+            correlation_matrix = self.correlation_matrix()
+
+        # Create a graph from the correlation matrix
+        G = nx.Graph()
+
+        # Add nodes
+        G.add_nodes_from(correlation_matrix.columns)
+
+        # Add edges with weights (correlations)
+        for i, col1 in enumerate(correlation_matrix.columns):
+            for j, col2 in enumerate(correlation_matrix.columns):
+                if i < j:  # To avoid duplicate edges
+                    correlation_value = correlation_matrix.iloc[i, j]
+                    if abs(correlation_value) >= threshold:
+                        G.add_edge(col1, col2, weight=correlation_value)
+
+        # Define layout (spring_layout is just an example, you can choose other layouts)
+        layout = nx.spring_layout(G, k=0.3)
+
+        # Determine nodes to include in the plot
+        if variables is None:
+            # If no specific variables are specified, include all nodes
+            included_nodes = G.nodes
+        else:
+            # Include specified variables and their neighbors
+            included_nodes = set()
+            for variable in variables:
+                included_nodes.add(variable)
+                included_nodes.update(G.neighbors(variable))
+
+        subgraph = G.subgraph(included_nodes)
+
+        # Separate positive and negative edges in the subgraph
+        positive_edges = [
+            (u, v) for u, v, d in subgraph.edges(data=True) if d["weight"] > 0
+        ]
+        negative_edges = [
+            (u, v) for u, v, d in subgraph.edges(data=True) if d["weight"] < 0
+        ]
+
+        # Create custom legend lines
+        legend_lines = [
+            Line2D([0], [0], color="red", linewidth=2, label="Positive Correlation"),
+            Line2D([0], [0], color="blue", linewidth=2, label="Negative Correlation"),
+        ]
+        # Set the figure size before any plotting commands
+        plt.figure(figsize=figsize)
+        # Draw positive edges in red
+        nx.draw_networkx_edges(
+            subgraph, pos=layout, edgelist=positive_edges, edge_color="red", width=2.0
+        )
+
+        # Draw negative edges in blue
+        nx.draw_networkx_edges(
+            subgraph, pos=layout, edgelist=negative_edges, edge_color="blue", width=2.0
+        )
+
+        # Draw nodes with labels
+        nx.draw_networkx_nodes(
+            subgraph,
+            pos=layout,
+            node_size=2000,
+            node_color="lightgray",
+        )
+        nx.draw_networkx_labels(subgraph, pos=layout, font_size=12, font_color="black")
+
+        # Draw edge labels separately
+        edge_labels = {
+            (i, j): f"{subgraph[i][j]['weight']:.2f}" for i, j in subgraph.edges()
+        }
+        nx.draw_networkx_edge_labels(subgraph, pos=layout, edge_labels=edge_labels)
+
+        # Add legend
+        plt.legend(handles=legend_lines)
+
+        plt.title("Correlation Network Plot")
+        plt.show()
 
     def calculate_pdf(self):
         """Returns the joint probability density function for the copula."""
@@ -979,12 +1056,12 @@ class Copula:
         ax1.legend(fontsize=12, borderpad=0.01, ncol=1)
 
 
-class InteractivePlot:
+class CopulaAnalysis:
     """A tool for plotting UQ and Copula data for analysis."""
 
     def __init__(self, uq_data, copula, num_intervals=10, custom_data_point=None):
         """
-        Initialize the InteractivePlot instance.
+        Initialize the CopulaAnalysis instance.
 
         Parameters:
         - uq_data: UQ data for analysis.
