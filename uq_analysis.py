@@ -48,13 +48,15 @@ class UncertaintyData:
     folder for the run data. The tool looks for hdf files containing uncertainty data, merges them, and has functions
     to clean, analyse, and plot the data."""
 
-    def __init__(self, path_to_uq_data_folder, figure_of_merit):
+    def __init__(self, path_to_uq_data_folder, figure_of_merit, use_scoping_data=False):
         self.path_in = path_to_uq_data_folder
         self.figure_of_merit = figure_of_merit
-
         self.sample_vars_h5_path = "param_values.h5"
         self.uncertainties_h5_path = "uncertainties_data.h5"
-        self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files()
+        self.uncertainties_h5_path = "scoping_data.h5"
+        self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
+            use_scoping_data
+        )
         self.uncertainties_df = self.uncertainties_df.drop(
             columns=[
                 "procver",
@@ -479,7 +481,7 @@ class UncertaintyData:
         )
         plt.show()
 
-    def merge_hdf_files(self):
+    def merge_hdf_files(self, use_scoping_data):
         """Looks for uncertainty hdf files in the working folder and merges them into a
         single dataframe for analysis.
 
@@ -491,7 +493,18 @@ class UncertaintyData:
         for root, dirs, files in os.walk(self.path_in):
             for file in files:
                 pos_hdf = root + os.sep + file
-                if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
+                if (
+                    use_scoping_data == True
+                    and pos_hdf.endswith(".h5")
+                    and "scoping_data" in pos_hdf
+                ):
+                    extra_uncertainties_df = pd.read_hdf(pos_hdf)
+                    list_uncertainties_dfs.append(extra_uncertainties_df)
+                elif (
+                    use_scoping_data == False
+                    and pos_hdf.endswith(".h5")
+                    and "uncertainties_data" in pos_hdf
+                ):
                     extra_uncertainties_df = pd.read_hdf(pos_hdf)
                     list_uncertainties_dfs.append(extra_uncertainties_df)
                 if pos_hdf.endswith(".h5") and "param_values" in pos_hdf:
@@ -812,7 +825,7 @@ class Copula:
             bounded=True,
         )
         if copula_type == "unbounded":
-            self.copula = GaussianMultivariate()
+            self.copula = GaussianMultivariate(distribution=Univariate())
         elif copula_type == "bounded":
             self.copula = GaussianMultivariate(distribution=bounded_univariate)
         self.copula_dict = {}
@@ -872,7 +885,7 @@ class Copula:
         plt.show()
 
     def plot_network(
-        self, correlation_matrix=None, threshold=0.1, variables=None, figsize=(10, 10)
+        self, correlation_matrix=None, threshold=0.1, variables=None, figsize=(8, 8)
     ):
         if correlation_matrix is None:
             correlation_matrix = self.correlation_matrix()
@@ -898,12 +911,15 @@ class Copula:
         if variables is None:
             # If no specific variables are specified, include all nodes
             included_nodes = G.nodes
+            title_variables = "All Variables"
+
         else:
             # Include specified variables and their neighbors
             included_nodes = set()
             for variable in variables:
                 included_nodes.add(variable)
                 included_nodes.update(G.neighbors(variable))
+                title_variables = ", ".join(variables)
 
         subgraph = G.subgraph(included_nodes)
 
@@ -950,7 +966,7 @@ class Copula:
         # Add legend
         plt.legend(handles=legend_lines)
 
-        plt.title("Correlation Network Plot")
+        plt.title(f"Correlation Network Plot\nIncluded Variables: {title_variables}")
         plt.show()
 
     def calculate_pdf(self):
