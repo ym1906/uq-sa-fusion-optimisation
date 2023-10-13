@@ -28,9 +28,9 @@ from copulas.univariate import (
     BetaUnivariate,
     GammaUnivariate,
 )
-from bokeh.palettes import Viridis256
+from bokeh.palettes import Viridis256, Spectral4, Spectral9, Blues4, Reds4
 from bokeh.io import curdoc
-from bokeh.plotting import figure, show, row
+from bokeh.plotting import figure, show, row, from_networkx
 from bokeh.layouts import gridplot
 from bokeh.models import (
     ColumnDataSource,
@@ -40,6 +40,16 @@ from bokeh.models import (
     BoxAnnotation,
     HBar,
     HTMLTemplateFormatter,
+    Range1d,
+    MultiLine,
+    Circle,
+    Plot,
+    TapTool,
+    NodesAndLinkedEdges,
+    BoxSelectTool,
+    LabelSet,
+    Label,
+    Text,
 )
 
 
@@ -885,14 +895,19 @@ class Copula:
         plt.show()
 
     def plot_network(
-        self, correlation_matrix=None, threshold=0.1, variables=None, figsize=(8, 8)
+        self,
+        correlation_matrix=None,
+        threshold=0.1,
+        variables=None,
+        nodes_to_highlight=None,
+        figsize=(12, 12),
     ):
         if correlation_matrix is None:
             correlation_matrix = self.correlation_matrix()
 
         # Create a graph from the correlation matrix
         G = nx.Graph()
-
+        p = figure()
         # Add nodes
         G.add_nodes_from(correlation_matrix.columns)
 
@@ -905,21 +920,19 @@ class Copula:
                         G.add_edge(col1, col2, weight=correlation_value)
 
         # Define layout (spring_layout is just an example, you can choose other layouts)
-        layout = nx.spring_layout(G, k=0.3)
+        layout = nx.spring_layout(G, k=0.7)
 
         # Determine nodes to include in the plot
         if variables is None:
             # If no specific variables are specified, include all nodes
             included_nodes = G.nodes
             title_variables = "All Variables"
-
         else:
             # Include specified variables and their neighbors
-            included_nodes = set()
+            included_nodes = set(variables)
             for variable in variables:
-                included_nodes.add(variable)
                 included_nodes.update(G.neighbors(variable))
-                title_variables = ", ".join(variables)
+            title_variables = ", ".join(variables)
 
         subgraph = G.subgraph(included_nodes)
 
@@ -931,43 +944,237 @@ class Copula:
             (u, v) for u, v, d in subgraph.edges(data=True) if d["weight"] < 0
         ]
 
+        # Choose a seaborn color palette
+        color_palette = sns.color_palette("husl", len(subgraph.nodes))
         # Create custom legend lines
         legend_lines = [
-            Line2D([0], [0], color="red", linewidth=2, label="Positive Correlation"),
-            Line2D([0], [0], color="blue", linewidth=2, label="Negative Correlation"),
+            Line2D(
+                [0],
+                [0],
+                color=color_palette[0],
+                linewidth=2,
+                label="Positive Correlation",
+            ),
+            Line2D(
+                [0], [0], color="tab:blue", linewidth=2, label="Negative Correlation"
+            ),
         ]
-        # Set the figure size before any plotting commands
-        plt.figure(figsize=figsize)
         # Draw positive edges in red
         nx.draw_networkx_edges(
-            subgraph, pos=layout, edgelist=positive_edges, edge_color="red", width=2.0
+            subgraph,
+            pos=layout,
+            edgelist=positive_edges,
+            edge_color=[
+                (1, 0, 0, abs(subgraph[u][v]["weight"])) for u, v in positive_edges
+            ],
+            width=8.0,
+        )
+        nx.draw_networkx_edges(
+            subgraph,
+            pos=layout,
+            edgelist=positive_edges,
+            edge_color="tab:grey",
+            width=1.0,
+            alpha=1.0,
         )
 
         # Draw negative edges in blue
         nx.draw_networkx_edges(
-            subgraph, pos=layout, edgelist=negative_edges, edge_color="blue", width=2.0
+            subgraph,
+            pos=layout,
+            edgelist=negative_edges,
+            edge_color=[
+                (0, 0, 1, abs(subgraph[u][v]["weight"])) for u, v in negative_edges
+            ],
+            width=8.0,
         )
+        nx.draw_networkx_edges(
+            subgraph,
+            pos=layout,
+            edgelist=negative_edges,
+            edge_color="tab:grey",
+            width=1.0,
+            alpha=0.5,
+        )
+        node_sizes = [subgraph.degree(node) * 800 for node in subgraph.nodes]
 
         # Draw nodes with labels
+        if nodes_to_highlight is not None:
+            node_colors = [
+                "lightgray" if node not in nodes_to_highlight else "tab:green"
+                for node in subgraph.nodes
+            ]
+        else:
+            node_colors = "lightgray"
+        options = {"edgecolors": "tab:gray"}
         nx.draw_networkx_nodes(
             subgraph,
             pos=layout,
-            node_size=2000,
-            node_color="lightgray",
+            node_size=node_sizes,
+            node_color=node_colors,
+            **options,
         )
-        nx.draw_networkx_labels(subgraph, pos=layout, font_size=12, font_color="black")
+        nx.draw_networkx_labels(
+            subgraph,
+            pos=layout,
+            font_size=10,
+            font_color="black",
+            font_weight="bold",
+        )
 
         # Draw edge labels separately
         edge_labels = {
             (i, j): f"{subgraph[i][j]['weight']:.2f}" for i, j in subgraph.edges()
         }
-        nx.draw_networkx_edge_labels(subgraph, pos=layout, edge_labels=edge_labels)
+        nx.draw_networkx_edge_labels(
+            subgraph,
+            pos=layout,
+            edge_labels=edge_labels,
+            font_size=6,
+            font_color="white",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                edgecolor="none",
+                facecolor=color_palette[0]
+                if edge_labels.get((i, j), 0) > 0
+                else color_palette[1],
+                alpha=0.1,  # Background alpha
+            ),
+        )
 
         # Add legend
         plt.legend(handles=legend_lines)
 
-        plt.title(f"Correlation Network Plot\nIncluded Variables: {title_variables}")
+        # Add title with included variables and nodes
+        plt.title(
+            f"Correlation Network Plot\nIncluded Variables: {title_variables}\nHighlighted Nodes: {nodes_to_highlight}"
+        )
+
+        # Set the figure size
+        plt.gcf().set_size_inches(figsize[0], figsize[1])
+
         plt.show()
+
+        p = figure()
+        p.grid.grid_line_color = None
+        mapping = dict((n, i) for i, n in enumerate(G.nodes))
+        H = nx.relabel_nodes(G, mapping)
+        graph = from_networkx(H, nx.spring_layout, scale=1.8, center=(0, 0))
+        p.renderers.append(graph)
+        graph.node_renderer.glyph = Circle(size=circle_size)
+
+        show(p)
+
+    def correlation_network(self, correlation_matrix, variables=None, threshold=0.1):
+        """
+        Create a correlation network based on the given correlation matrix.
+
+        Parameters:
+        - correlation_matrix (pd.DataFrame): The correlation matrix.
+        - variables (list): List of variables to include. If None, include all variables.
+        - threshold (float): Threshold for including edges based on correlation.
+
+        Returns:
+        - nx.Graph: The correlation network as a NetworkX graph.
+        """
+        # Create a graph from the correlation matrix
+        G = nx.Graph()
+        # Add nodes
+        G.add_nodes_from(correlation_matrix)
+
+        # Add edges with weights (correlations)
+        for i, col1 in enumerate(correlation_matrix.columns):
+            for j, col2 in enumerate(correlation_matrix.columns):
+                if i < j:  # To avoid duplicate edges
+                    correlation_value = correlation_matrix.iloc[i, j]
+                    if abs(correlation_value) >= threshold:
+                        # Include only specified variables and their neighbors
+                        if (
+                            variables is None
+                            or (col1 in variables)
+                            or (col2 in variables)
+                        ):
+                            G.add_edge(col1, col2, weight=correlation_value)
+        # Determine nodes to include in the plot
+        if variables is None:
+            # If no specific variables are specified, include all nodes
+            included_nodes = G.nodes
+            title_variables = "All Variables"
+        else:
+            # Include specified variables and their neighbors
+            included_nodes = set(variables)
+            for variable in variables:
+                included_nodes.update(G.neighbors(variable))
+            title_variables = ", ".join(variables)
+
+        subgraph = G.subgraph(included_nodes)
+        return G
+
+    def plot_network_bokeh(self, networkx, correlation_matrix):
+        mapping = dict((n, i) for i, n in enumerate(networkx.nodes))
+        G = nx.relabel_nodes(networkx, mapping)
+        graph_renderer = from_networkx(G, nx.spring_layout, k=0.8, center=(0, 0))
+
+        graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
+        graph_renderer.node_renderer.data_source.data[
+            "name"
+        ] = correlation_matrix.columns
+        text_renderer = graph_renderer
+        plot = Plot(
+            width=800,
+            height=800,
+            x_range=Range1d(-1.1, 1.1),
+            y_range=Range1d(-1.1, 1.1),
+        )
+        plot.title.text = "PROCESS UQ Network"
+
+        plot.add_tools(HoverTool(tooltips="name: @name"), TapTool(), BoxSelectTool())
+        circle_size = 60
+
+        graph_renderer.node_renderer.glyph = Circle(
+            size=circle_size,
+            fill_color=Spectral4[0],
+        )
+        graph_renderer.node_renderer.selection_glyph = Circle(
+            size=circle_size, fill_color=Spectral4[2]
+        )
+        graph_renderer.node_renderer.hover_glyph = Circle(
+            size=circle_size, fill_color=Spectral4[1]
+        )
+        print(graph_renderer.node_renderer.data_source.data)
+        labels = LabelSet(
+            x="x",
+            y="y",
+            text="name",
+            text_align="center",
+            text_baseline="middle",
+            source=graph_renderer.node_renderer.data_source,
+        )
+        graph_renderer.edge_renderer.glyph = MultiLine(
+            line_color="#CCCCCC", line_alpha=0.8, line_width=5
+        )
+        edge_data = graph_renderer.edge_renderer.data_source.data
+        edge_data["line_color"] = [
+            Blues4[0] if w < -0.0 else Reds4[0] for w in edge_data["weight"]
+        ]
+
+        graph_renderer.edge_renderer.selection_glyph = MultiLine(
+            line_color="line_color", line_width=5
+        )
+        graph_renderer.edge_renderer.hover_glyph = MultiLine(
+            line_color="line_color", line_width=5
+        )
+
+        graph_renderer.selection_policy = NodesAndLinkedEdges()
+        graph_renderer.inspection_policy = NodesAndLinkedEdges()
+        # text_renderer.node_renderer.glyph = Text(text="name")
+
+        # plot.renderers.append(text_renderer)
+        plot.renderers.append(graph_renderer)
+
+        plot.renderers.append(labels)
+
+        show(plot)
 
     def calculate_pdf(self):
         """Returns the joint probability density function for the copula."""
@@ -1311,6 +1518,7 @@ class CopulaAnalysis:
             if max_probability_filtered_df.shape[0] > 0
             else 0.0
         )
+        print(data["max_probability_mean"])
 
         # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
