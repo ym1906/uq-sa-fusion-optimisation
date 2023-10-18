@@ -1,7 +1,7 @@
 import pandas as pd
-import argparse
 import json
 import os
+import re
 from dataclasses import dataclass, asdict
 from SALib.analyze import rbd_fast, hdmr, rsa
 import statsmodels.api as sm
@@ -28,9 +28,13 @@ from copulas.univariate import (
     BetaUnivariate,
     GammaUnivariate,
 )
-from bokeh.palettes import Viridis256, Spectral4, Spectral9, Blues4, Reds4, Greys3
-from bokeh.io import curdoc
-from bokeh.plotting import figure, show, row, from_networkx
+from bokeh.palettes import (
+    PuBu5,
+    PuRd5,
+    PuBuGn5,
+)
+import python_fortran_dicts
+from bokeh.plotting import figure, show, from_networkx
 from bokeh.layouts import gridplot
 from bokeh.models import (
     ColumnDataSource,
@@ -49,6 +53,10 @@ from bokeh.models import (
     BoxSelectTool,
     LabelSet,
     ResetTool,
+    EdgesAndLinkedNodes,
+    NodesAndAdjacentNodes,
+    Legend,
+    LegendItem,
 )
 
 
@@ -893,125 +901,6 @@ class Copula:
         sns.heatmap(self.correlation_matrix(), annot=True, cmap="coolwarm", fmt=".2f")
         plt.show()
 
-    def correlation_network(self, correlation_matrix, variables=None, threshold=0.1):
-        """
-        Create a correlation network based on the given correlation matrix.
-
-        Parameters:
-        - correlation_matrix (pd.DataFrame): The correlation matrix.
-        - variables (list): List of variables to include. If None, include all variables.
-        - threshold (float): Threshold for including edges based on correlation.
-
-        Returns:
-        - nx.Graph: The correlation network as a NetworkX graph.
-        """
-        # Create a graph from the correlation matrix
-        G = nx.Graph()
-        # Add nodes
-        G.add_nodes_from(correlation_matrix)
-
-        # Add edges with weights (correlations)
-        for i, col1 in enumerate(correlation_matrix.columns):
-            for j, col2 in enumerate(correlation_matrix.columns):
-                if i < j:  # To avoid duplicate edges
-                    correlation_value = correlation_matrix.iloc[i, j]
-                    if abs(correlation_value) >= threshold:
-                        # Include only specified variables and their neighbors
-                        if (
-                            variables is None
-                            or (col1 in variables)
-                            or (col2 in variables)
-                        ):
-                            G.add_edge(col1, col2, weight=correlation_value)
-        # Determine nodes to include in the plot
-        if variables is None:
-            # If no specific variables are specified, include all nodes
-            included_nodes = G.nodes
-            title_variables = "All Variables"
-        else:
-            # Include specified variables and their neighbors
-            included_nodes = set(variables)
-            for variable in variables:
-                included_nodes.update(G.neighbors(variable))
-            title_variables = ", ".join(variables)
-
-        subgraph = G.subgraph(included_nodes)
-        return G
-
-    def plot_network_bokeh(self, networkx, correlation_matrix):
-        variable_names = correlation_matrix.columns
-        mapping = dict((n, i) for i, n in enumerate(networkx.nodes))
-        G = nx.relabel_nodes(networkx, mapping)
-        graph_renderer = from_networkx(G, nx.spring_layout, k=0.8, center=(0, 0))
-        graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
-        graph_renderer.node_renderer.data_source.data["name"] = variable_names
-        plot = Plot(
-            width=800,
-            height=800,
-            x_range=Range1d(-1.1, 1.1),
-            y_range=Range1d(-1.1, 1.1),
-        )
-        plot.title.text = "PROCESS UQ Network"
-
-        plot.add_tools(
-            HoverTool(tooltips="name: @name"),
-            TapTool(),
-            BoxSelectTool(),
-            ResetTool(),
-        )
-        circle_size = 60
-
-        graph_renderer.node_renderer.glyph = Circle(
-            size=circle_size,
-            fill_color=Spectral4[0],
-        )
-        graph_renderer.node_renderer.selection_glyph = Circle(
-            size=circle_size, fill_color=Spectral4[2]
-        )
-        graph_renderer.node_renderer.hover_glyph = Circle(
-            size=circle_size, fill_color=Spectral4[1]
-        )
-        # Create labels for nodes and add them to the plot
-        x, y = zip(*graph_renderer.layout_provider.graph_layout.values())
-
-        source = ColumnDataSource({"x": x, "y": y, "names": variable_names})
-        labels = LabelSet(
-            x="x",
-            y="y",
-            text="names",
-            level="glyph",
-            text_color="black",
-            x_offset=0.0,
-            y_offset=0.0,
-            source=source,
-            text_align="center",
-            text_baseline="middle",
-        )
-        plot.add_layout(labels)
-        graph_renderer.edge_renderer.glyph = MultiLine(
-            line_color="#CCCCCC", line_alpha=0.8, line_width=5
-        )
-        edge_data = graph_renderer.edge_renderer.data_source.data
-        edge_data["line_color"] = [
-            Blues4[0] if w < -0.0 else Reds4[0] for w in edge_data["weight"]
-        ]
-
-        graph_renderer.edge_renderer.selection_glyph = MultiLine(
-            line_color="line_color", line_width=5
-        )
-        graph_renderer.edge_renderer.hover_glyph = MultiLine(
-            line_color="line_color", line_width=5
-        )
-
-        graph_renderer.selection_policy = NodesAndLinkedEdges()
-        graph_renderer.inspection_policy = NodesAndLinkedEdges()
-
-        plot.renderers.append(graph_renderer)
-
-        plot.renderers.append(labels)
-
-        show(plot)
-
     def calculate_pdf(self):
         """Returns the joint probability density function for the copula."""
 
@@ -1202,6 +1091,36 @@ class CopulaAnalysis:
         interval_probability /= interval_probability.sum()
         return interval_probability
 
+    def find_description(self, variable_name, trim_after_char=80):
+        """Get the variable descriptiuon from the process variable dict.
+        Trim patterns and character length.
+
+        :param variable_name: variable to search for
+        :type variable_name: str
+        :param variable_name: number of characters to trim description after
+        :type variable_name: int
+        :return: description of variable
+        :rtype: str
+        """
+        variable_dict = python_fortran_dicts.get_dicts()
+        description = variable_dict["DICT_DESCRIPTIONS"].get(
+            variable_name, "Description not found"
+        )
+
+        # Trim the description to the first 100 characters.
+        trimmed_description = description[:trim_after_char]
+        # Define patterns to remove (with variations).
+        patterns_to_remove = [
+            r"\(`iteration variable \d+`\)",
+            r"\(`calculated \d+`\)",
+            r"\(calculated \d+`\)",
+        ]  # Add your patterns here
+        # Remove specified patterns.
+        for pattern in patterns_to_remove:
+            trimmed_description = re.sub(pattern, "", trimmed_description)
+
+        return trimmed_description
+
     def calculate_variable_probabilities(self, variable: str):
         """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
         The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
@@ -1265,10 +1184,12 @@ class CopulaAnalysis:
             custom_data_point_value = None
             custom_data_point_index = None
             custom_data_point_probability = None
+        # Find variable description in dict
+        description = self.find_description(variable)
         # Create variable dataclass and store it
-
         variable_data = uncertain_variable_data(
             name=variable,
+            description=description,
             design_range_start=design_range_start,
             design_range_end=design_range_end,
             design_value=design_value,
@@ -1342,7 +1263,6 @@ class CopulaAnalysis:
             data["custom_delta"] = data["custom_data_point_mean"] - data["design_value"]
             data = data.apply(modify_row, axis=1)
 
-            # print(data)
             self._calculate_custom_joint_probability(data)
 
         # Design and max probability means
@@ -1354,7 +1274,6 @@ class CopulaAnalysis:
             if max_probability_filtered_df.shape[0] > 0
             else 0.0
         )
-        print(data["max_probability_mean"])
 
         # Calculate the delta between design value and max probable value.
         data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
@@ -1614,12 +1533,187 @@ class CopulaAnalysis:
 
         return data_table
 
+    def correlation_network(self, correlation_matrix, variables=None, threshold=0.1):
+        """
+        Create a correlation network based on the given correlation matrix.
+
+        Parameters:
+        - correlation_matrix (pd.DataFrame): The correlation matrix.
+        - variables (list): List of variables to include. If None, include all variables.
+        - threshold (float): Threshold for including edges based on correlation.
+
+        Returns:
+        - nx.Graph: The correlation network as a NetworkX graph.
+        """
+        # Create a graph from the correlation matrix
+        G = nx.Graph()
+        # Add nodes
+        G.add_nodes_from(correlation_matrix)
+
+        # Add edges with weights (correlations)
+        for i, col1 in enumerate(correlation_matrix.columns):
+            for j, col2 in enumerate(correlation_matrix.columns):
+                if i < j:  # To avoid duplicate edges
+                    correlation_value = correlation_matrix.iloc[i, j]
+                    if abs(correlation_value) >= threshold:
+                        # Include only specified variables and their neighbors
+                        if (
+                            variables is None
+                            or (col1 in variables)
+                            or (col2 in variables)
+                        ):
+                            G.add_edge(col1, col2, weight=correlation_value)
+        # Determine nodes to include in the plot
+        if variables is None:
+            # If no specific variables are specified, include all nodes
+            included_nodes = G.nodes
+            title_variables = "All Variables"
+        else:
+            # Include specified variables and their neighbors
+            included_nodes = set(variables)
+            for variable in variables:
+                included_nodes.update(G.neighbors(variable))
+            title_variables = ", ".join(variables)
+
+        subgraph = G.subgraph(included_nodes)
+        return G
+
+    def plot_network(self, networkx, correlation_matrix):
+        """Create a Bokeh network plot. Clickable nodes.
+
+        :param networkx: networkx data
+        :type networkx: networkx
+        :param correlation_matrix: correlation matrix produced by the copula
+        :type correlation_matrix: dict
+        """
+        variable_data = self._convert_variable_data_to_dataframe(self.variable_data)
+        variable_data = variable_data.map(format_number)
+        variable_names = correlation_matrix.columns
+        mapping = dict((n, i) for i, n in enumerate(networkx.nodes))
+        G = nx.relabel_nodes(networkx, mapping)
+        graph_renderer = from_networkx(G, nx.spring_layout, k=0.8, center=(0, 0))
+        graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
+        graph_renderer.node_renderer.data_source.data["name"] = variable_names
+        graph_renderer.node_renderer.data_source.data["description"] = variable_data[
+            "description"
+        ]
+        graph_renderer.node_renderer.data_source.data[
+            "design_range_start"
+        ] = variable_data["design_range_start"]
+        graph_renderer.node_renderer.data_source.data[
+            "design_range_end"
+        ] = variable_data["design_range_end"]
+        graph_renderer.node_renderer.data_source.data[
+            "max_probability_value"
+        ] = variable_data["max_probability_value"]
+
+        plot = figure(
+            width=800,
+            height=800,
+            x_range=Range1d(-1.1, 1.1),
+            y_range=Range1d(-1.1, 1.1),
+        )
+        plot.title.text = "PROCESS UQ Network"
+        tooltips = [
+            ("Name", "@name"),
+            ("Description", "@description"),
+            ("Optimised value", "@max_probability_value"),
+            ("Range start", "@design_range_start"),
+            ("Range end", "@design_range_end"),
+        ]
+        plot.add_tools(
+            HoverTool(tooltips=tooltips),
+            TapTool(),
+            BoxSelectTool(),
+            ResetTool(),
+        )
+        circle_size = 60
+
+        graph_renderer.node_renderer.glyph = Circle(
+            size=circle_size,
+            fill_color=PuBuGn5[3],
+        )
+        graph_renderer.node_renderer.selection_glyph = Circle(
+            size=circle_size, fill_color=PuBuGn5[1]
+        )
+        graph_renderer.node_renderer.nonselection_glyph = Circle(
+            size=circle_size, fill_color=PuBuGn5[3]
+        )
+        graph_renderer.node_renderer.hover_glyph = Circle(
+            size=circle_size, fill_color=PuBuGn5[1]
+        )
+
+        # Create labels for nodes and add them to the plot
+        x, y = zip(*graph_renderer.layout_provider.graph_layout.values())
+        source = ColumnDataSource({"x": x, "y": y, "names": variable_names})
+        labels = LabelSet(
+            x="x",
+            y="y",
+            text="names",
+            level="glyph",
+            text_color="black",
+            x_offset=0.0,
+            y_offset=0.0,
+            source=source,
+            text_align="center",
+            text_baseline="middle",
+        )
+        plot.add_layout(labels)
+
+        # Add gray lines when nothing is highlighted.
+        graph_renderer.edge_renderer.glyph = MultiLine(
+            line_color="#CCCCCC", line_alpha=0.8, line_width=5
+        )
+        edge_data = graph_renderer.edge_renderer.data_source.data
+        # Add red lines for positive correlation, blue for negative. Visible on highlight.
+        edge_data["line_color"] = [
+            PuBu5[0] if w < -0.0 else PuRd5[0] for w in edge_data["weight"]
+        ]
+        graph_renderer.edge_renderer.selection_glyph = MultiLine(
+            line_color="line_color", line_width=5
+        )
+        graph_renderer.edge_renderer.hover_glyph = MultiLine(
+            line_color="line_color", line_width=5
+        )
+
+        graph_renderer.selection_policy = NodesAndLinkedEdges()
+        graph_renderer.inspection_policy = NodesAndLinkedEdges()
+
+        plot.renderers.append(graph_renderer)
+        # Create a custom legend
+        negative_circle = plot.circle(
+            x=0,
+            y=0,
+            size=0,
+            name="Negative",
+            fill_color=PuBu5[0],
+            legend_label="Negative",
+        )
+        negative_circle = plot.circle(
+            x=0,
+            y=0,
+            size=0,
+            name="Negative",
+            fill_color=PuRd5[0],
+            legend_label="Positive",
+        )
+        plot.legend.title = "Correlation"
+        # plot.add_glyph(negative_circle)
+
+        # node_legend = Legend(items=[("Nodes", [negative_circle])])
+
+        # plot.add_layout(node_legend)
+        plot.renderers.append(labels)
+
+        show(plot)
+
 
 @dataclass
 class uncertain_variable_data:
     """Used to contain data about uncertain variables, used for plotting." """
 
     name: str
+    description: str
     design_range_start: float
     design_range_end: float
     design_value: float
