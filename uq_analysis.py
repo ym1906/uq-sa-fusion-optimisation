@@ -134,8 +134,6 @@ class UncertaintyData:
             "rmajor",
         ]
         # self.input_names.extend(itv)
-        self.sampled_vars_to_plot = []
-        self.plot_names = []
         self.number_sampled_vars = len(self.input_names)
         self.problem = {
             "num_vars": self.number_sampled_vars,
@@ -148,22 +146,12 @@ class UncertaintyData:
         self.converged_sampled_vars_df = self.converged_df[self.input_names]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.input_names]
         self.unconverged_fom_df = self.uncertainties_df[self.figure_of_merit]
-        self.plot_converged_df = pd.DataFrame()
-        self.plot_unconverged_df = pd.DataFrame()
-        self.sensitivity_df = pd.DataFrame()
-        self.sumsq_sensitivity_df = pd.DataFrame()
-        self.converged_sampled = pd.DataFrame()
         # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
         self.significance_level = 0.05
-        self.significant_conv_vars = []
-
         self.reliability_index = 0.0
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
-        self.item_with_sensitivity = []
-        self.sens_dict = {}
-        self.list_new_dfs = []
 
         # Using a dict for converting param names for plotting
         self.name_dict = {
@@ -833,11 +821,7 @@ class Copula:
         if input_names is not None:
             self.input_data = self.input_data[input_names]
         self.input_names = input_names
-        self.sampled_input_data = pd.DataFrame()
         self.variable_names = self.input_data.columns.tolist()
-        self.pdf = []
-        self.cdf = []
-        self.synthetic_data = pd.DataFrame()
         bounded_univariate = Univariate(
             bounded=True,
         )
@@ -845,7 +829,6 @@ class Copula:
             self.copula = GaussianMultivariate(distribution=Univariate())
         elif copula_type == "bounded":
             self.copula = GaussianMultivariate(distribution=bounded_univariate)
-        self.copula_dict = {}
 
     def calculate_copula(
         self,
@@ -1576,7 +1559,8 @@ class CopulaAnalysis:
             title_variables = ", ".join(variables)
 
         subgraph = G.subgraph(included_nodes)
-        return G
+        self.included_nodes = list(included_nodes)
+        return subgraph
 
     def plot_network(self, networkx, correlation_matrix):
         """Create a Bokeh network plot. Clickable nodes.
@@ -1587,13 +1571,16 @@ class CopulaAnalysis:
         :type correlation_matrix: dict
         """
         variable_data = self._convert_variable_data_to_dataframe(self.variable_data)
+        variable_data = variable_data[variable_data.index.isin(self.included_nodes)]
         variable_data = variable_data.map(format_number)
-        variable_names = correlation_matrix.columns
         mapping = dict((n, i) for i, n in enumerate(networkx.nodes))
         G = nx.relabel_nodes(networkx, mapping)
-        graph_renderer = from_networkx(G, nx.spring_layout, k=0.8, center=(0, 0))
+        graph_renderer = from_networkx(G, nx.spring_layout, k=0.9, center=(0, 0))
         graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
-        graph_renderer.node_renderer.data_source.data["name"] = variable_names
+        graph_renderer.node_renderer.data_source.data[
+            "name"
+        ] = variable_data.index.tolist()
+
         graph_renderer.node_renderer.data_source.data["description"] = variable_data[
             "description"
         ]
@@ -1607,6 +1594,10 @@ class CopulaAnalysis:
             "max_probability_value"
         ] = variable_data["max_probability_value"]
 
+        graph_renderer.node_renderer.data_source.data["node_color"] = [
+            PuBuGn5[3] if n in self.uq_data.itv else PuBuGn5[2]
+            for n in graph_renderer.node_renderer.data_source.data["name"]
+        ]
         plot = figure(
             width=800,
             height=800,
@@ -1627,17 +1618,17 @@ class CopulaAnalysis:
             BoxSelectTool(),
             ResetTool(),
         )
-        circle_size = 60
+        circle_size = 70
 
         graph_renderer.node_renderer.glyph = Circle(
             size=circle_size,
-            fill_color=PuBuGn5[3],
+            fill_color="node_color",
         )
         graph_renderer.node_renderer.selection_glyph = Circle(
             size=circle_size, fill_color=PuBuGn5[1]
         )
         graph_renderer.node_renderer.nonselection_glyph = Circle(
-            size=circle_size, fill_color=PuBuGn5[3]
+            size=circle_size, fill_color="node_color"
         )
         graph_renderer.node_renderer.hover_glyph = Circle(
             size=circle_size, fill_color=PuBuGn5[1]
@@ -1645,7 +1636,13 @@ class CopulaAnalysis:
 
         # Create labels for nodes and add them to the plot
         x, y = zip(*graph_renderer.layout_provider.graph_layout.values())
-        source = ColumnDataSource({"x": x, "y": y, "names": variable_names})
+        source = ColumnDataSource(
+            {
+                "x": x,
+                "y": y,
+                "names": graph_renderer.node_renderer.data_source.data["name"],
+            }
+        )
         labels = LabelSet(
             x="x",
             y="y",
@@ -1698,11 +1695,6 @@ class CopulaAnalysis:
             legend_label="Positive",
         )
         plot.legend.title = "Correlation"
-        # plot.add_glyph(negative_circle)
-
-        # node_legend = Legend(items=[("Nodes", [negative_circle])])
-
-        # plot.add_layout(node_legend)
         plot.renderers.append(labels)
 
         show(plot)
