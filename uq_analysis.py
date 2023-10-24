@@ -149,7 +149,6 @@ class UncertaintyData:
         # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
         self.significance_level = 0.05
-        self.reliability_index = 0.0
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
 
@@ -299,13 +298,17 @@ class UncertaintyData:
         with open("result_05si.json", "w") as fp:
             json.dump(self.sens_dict, fp)
 
-    def calculate_reliability(self):
-        """Calculate the Reliability Index, defined as number of converged runs divided by
-        the number of failed runs.
+    def calculate_failure_probability(self):
+        """Calculate the probability of failure and its coefficient of variation (C.O.V). This is defined as the number of failed runs
+        divided by the number of converged runs.
         """
-        self.reliability_index = round(
-            (len(self.converged_df.index)) / len((self.uncertainties_df.index)), 2
+        self.failure_probability = round(
+            1 - (len(self.converged_df.index)) / len((self.uncertainties_df.index)), 2
         )
+        self.failure_cov = round(np.sqrt(
+            (1 - self.failure_probability)
+            / (self.failure_probability * len(self.uncertainties_df.index))
+        ),2)
 
     def read_json(self, file):
         """Read and print a json file.
@@ -1560,9 +1563,10 @@ class CopulaAnalysis:
 
         subgraph = G.subgraph(included_nodes)
         self.included_nodes = list(included_nodes)
+
         return subgraph
 
-    def plot_network(self, networkx, correlation_matrix):
+    def plot_network(self, networkx, fig_height=800, fig_width=800):
         """Create a Bokeh network plot. Clickable nodes.
 
         :param networkx: networkx data
@@ -1599,8 +1603,8 @@ class CopulaAnalysis:
             for n in graph_renderer.node_renderer.data_source.data["name"]
         ]
         plot = figure(
-            width=800,
-            height=800,
+            width=fig_width,
+            height=fig_width,
             x_range=Range1d(-1.1, 1.1),
             y_range=Range1d(-1.1, 1.1),
         )
@@ -1656,7 +1660,10 @@ class CopulaAnalysis:
             text_baseline="middle",
         )
         plot.add_layout(labels)
-
+        # Draw edge labels separately ... Todo: find a nice way to present this data.
+        edge_labels = {
+            (i, j): f"{networkx[i][j]['weight']:.2f}" for i, j in networkx.edges()
+        }
         # Add gray lines when nothing is highlighted.
         graph_renderer.edge_renderer.glyph = MultiLine(
             line_color="#CCCCCC", line_alpha=0.8, line_width=5
