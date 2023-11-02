@@ -69,8 +69,6 @@ class UncertaintyData:
         self.path_in = path_to_uq_data_folder
         self.figure_of_merit = figure_of_merit
         self.sample_vars_h5_path = "param_values.h5"
-        self.uncertainties_h5_path = "uncertainties_data.h5"
-        self.uncertainties_h5_path = "scoping_data.h5"
         self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
             use_scoping_data
         )
@@ -305,10 +303,13 @@ class UncertaintyData:
         self.failure_probability = round(
             1 - (len(self.converged_df.index)) / len((self.uncertainties_df.index)), 2
         )
-        self.failure_cov = round(np.sqrt(
-            (1 - self.failure_probability)
-            / (self.failure_probability * len(self.uncertainties_df.index))
-        ),2)
+        self.failure_cov = round(
+            np.sqrt(
+                (1 - self.failure_probability)
+                / (self.failure_probability * len(self.uncertainties_df.index))
+            ),
+            2,
+        )
 
     def read_json(self, file):
         """Read and print a json file.
@@ -1107,6 +1108,30 @@ class CopulaAnalysis:
 
         return trimmed_description
 
+    def sum_intervals_to_probability(
+        self, interval_endpoints, interval_probabilities, desired_probability
+    ):
+        # Convert pandas dataframe to numpy array
+        probabilities = pd.DataFrame(interval_probabilities)
+        sorted_probabilities = probabilities.sort_values(by=0, ascending=False)
+        # Initialize variables
+        cumulative_sum = 0
+        included_probabilities = []
+        included_index = []
+
+        # Iterate through the sorted DataFrame and add probabilities to the cumulative sum
+        for index, row in sorted_probabilities.iterrows():
+            probability = row[0]
+            included_index.append(included_index)
+            cumulative_sum += probability
+            included_probabilities.append(probability)
+            # print(index)
+            included_index.append(index)
+            # Check if the cumulative sum exceeds the desired probability
+            if cumulative_sum >= desired_probability:
+                break
+        return included_index
+
     def calculate_variable_probabilities(self, variable: str):
         """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
         The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
@@ -1130,9 +1155,24 @@ class CopulaAnalysis:
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
-
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
+        # Map values to intervals
+        # Map values to intervals with "right" set to False
+        int_uncertainties_df = pd.DataFrame()
+        int_uncertainties_df["intervals"] = pd.cut(
+            self.uq_data.uncertainties_df[variable],
+            bins=design_range_intervals,
+            right=False,
+        )
+
+        # Count the frequency of values in each interval
+        interval_counts = (
+            (int_uncertainties_df["intervals"].value_counts().sort_index()).tolist()
+        ) + [1]
+
+        # Display the results
+
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
@@ -1140,17 +1180,27 @@ class CopulaAnalysis:
             converged_intervals.index.values.astype(int)
         ] = converged_intervals.values
         interval_probability = interval_probability / interval_probability.sum()
-        # Store the results for plotting in dataframe
-        # Get the input values
-        design_value_index = np.digitize(design_value, design_range_intervals)
-        design_value_probability = interval_probability[design_value_index]
-        # Get the maximum pdf value
-        max_probability = interval_probability.max()
-        max_probability_index = interval_probability.argmax()
-        max_probability_design_interval = design_range_intervals[max_probability_index]
+
         # Interval width
         interval_width = (design_range_intervals[-1] - design_range_intervals[0]) / len(
             design_range_intervals
+        )
+        interval_confidence = self._calculate_confidence(
+            interval_probability, self.uq_data.number_of_converged_runs, interval_counts
+        )
+        # Store the results for plotting in dataframe
+        # Get the input values
+        design_value_index = np.digitize(design_value, design_range_intervals)
+        design_value_probability = interval_confidence[design_value_index]
+        # Get the maximum pdf value
+        max_confidence = interval_confidence.max()
+        max_confidence_index = interval_confidence.argmax()
+        max_confidence_design_interval = design_range_intervals[max_confidence_index]
+        # Delete this function if not required
+        x = self.sum_intervals_to_probability(
+            interval_endpoints=design_range_intervals,
+            interval_probabilities=interval_confidence,
+            desired_probability=0.9,
         )
         # Check if a custom_data_point is provided
         if self.custom_data_point is not None:
@@ -1158,7 +1208,7 @@ class CopulaAnalysis:
                 custom_data_point_index = np.digitize(
                     self.custom_data_point[variable], design_range_intervals
                 )
-                custom_data_point_probability = interval_probability[
+                custom_data_point_probability = interval_confidence[
                     custom_data_point_index
                 ]
                 custom_data_point_value = self.custom_data_point[variable]
@@ -1181,11 +1231,15 @@ class CopulaAnalysis:
             design_value=design_value,
             design_range_intervals=design_range_intervals,
             interval_probability=interval_probability,
-            max_probability_value=max_probability_design_interval,
-            max_probability=max_probability,
+            interval_confidence=interval_confidence,
+            confidence_sum=sum(interval_confidence),
+            interval_sample_counts=interval_counts,
+            max_confidence_value=max_confidence_design_interval
+            + (0.5 * interval_width),
+            max_confidence=max_confidence,
             design_value_probability=design_value_probability,
             design_value_index=design_value_index,
-            max_probability_index=max_probability_index,
+            max_confidence_index=max_confidence_index,
             interval_width=interval_width,
             custom_data_point=custom_data_point_value,
             custom_data_point_index=custom_data_point_index,
@@ -1205,14 +1259,14 @@ class CopulaAnalysis:
         """
         data = self._convert_variable_data_to_dataframe(variable_data)
         # Joint probability calculations
-        self._calculate_joint_probabilities(data)
+        self._calculate_joint_confidence(data)
 
         # Filter dataframes based on design and max probability values
         design_filtered_df = self._filter_dataframe_by_index(
             data, "design_value_index", self.copula.input_names
         )
-        max_probability_filtered_df = self._filter_dataframe_by_index(
-            data, "max_probability_index", self.copula.input_names
+        max_confidence_filtered_df = self._filter_dataframe_by_index(
+            data, "max_confidence_index", self.copula.input_names
         )
 
         def modify_row(row):
@@ -1220,8 +1274,8 @@ class CopulaAnalysis:
                 row["custom_data_point_mean"], row["design_range_intervals"]
             )
 
-            if row["custom_data_point_index"] < len(row["interval_probability"]):
-                row["custom_data_point_probability"] = row["interval_probability"][
+            if row["custom_data_point_index"] < len(row["interval_confidence"]):
+                row["custom_data_point_probability"] = row["interval_confidence"][
                     row["custom_data_point_index"]
                 ]
             else:
@@ -1255,14 +1309,14 @@ class CopulaAnalysis:
         data["design_mean"] = (
             design_filtered_df.mean() if design_filtered_df.shape[0] > 0 else 0.0
         )
-        data["max_probability_mean"] = (
-            max_probability_filtered_df.mean()
-            if max_probability_filtered_df.shape[0] > 0
+        data["max_confidence_mean"] = (
+            max_confidence_filtered_df.mean()
+            if max_confidence_filtered_df.shape[0] > 0
             else 0.0
         )
 
         # Calculate the delta between design value and max probable value.
-        data["optimised_delta"] = data["max_probability_mean"] - data["design_value"]
+        data["optimised_delta"] = data["max_confidence_value"] - data["design_value"]
 
         return data
 
@@ -1273,14 +1327,40 @@ class CopulaAnalysis:
         data.set_index("name", inplace=True)
         return data
 
-    def _calculate_joint_probabilities(self, data):
-        """Calculate joint probabilities."""
+    def _calculate_joint_confidence(self, data):
+        """Calculate the confidence of the original design space, then the confidence of the optimised space."""
         data["joint_input_probability"] = data.loc[
-            self.uq_data.significant_conv_vars, "design_value_probability"
-        ].product()
-        data["joint_max_probability"] = data.loc[
-            self.uq_data.significant_conv_vars, "max_probability"
-        ].product()
+            self.uq_data.significant_conv_vars, "confidence_sum"
+        ].sum() / (len(data) * (self.num_intervals - 1))
+        data["joint_max_confidence"] = data.loc[
+            self.uq_data.significant_conv_vars, "max_confidence"
+        ].sum() / (len(data))
+
+    def _calculate_confidence(
+        self, interval_probability, num_converged, interval_sample_counts
+    ):
+        """Calculate the confidence that an interval will converge. This is defined as
+        the ratio of the number of convergent points to sampled points. Currently using
+        the generated pdf to estimate convergent points.
+
+        :param interval_probability: probability of a convergent point in the interval
+        :type interval_probability: list
+        :param num_converged: number of converged points in run
+        :type num_converged: int
+        :param interval_sample_counts: number of times the interval was sampled by MC.
+        :type interval_sample_counts: list
+        :return: interval confidence
+        :rtype: list
+        """
+        interval_confidence = (interval_probability * num_converged) / (
+            interval_sample_counts
+        )
+        for i in range(len(interval_confidence)):
+            if interval_confidence[i] == float("inf") or interval_confidence[
+                i
+            ] == float("-inf"):
+                interval_confidence[i] = 0.0
+        return interval_confidence
 
     def _filter_dataframe_by_index(self, data, index_column, columns_to_filter):
         """Filter dataframe based on the given index_column."""
@@ -1336,10 +1416,10 @@ class CopulaAnalysis:
             line_dash="dashed",
         )
         sample_space = HBar(
-            y=uncertain_variable_data.max_probability * 0.5,
+            y=uncertain_variable_data.max_confidence * 0.5,
             right=uncertain_variable_data.design_range_end,
             left=uncertain_variable_data.design_range_start,
-            height=uncertain_variable_data.max_probability,
+            height=uncertain_variable_data.max_confidence,
             fill_alpha=0.1,
             fill_color="grey",
             line_alpha=0.2,
@@ -1349,9 +1429,9 @@ class CopulaAnalysis:
         )
         # Plot max pdf lines
         max_var_box = BoxAnnotation(
-            left=uncertain_variable_data.max_probability_value,
-            right=uncertain_variable_data.max_probability_value,
-            top=uncertain_variable_data.max_probability,
+            left=uncertain_variable_data.max_confidence_value,
+            right=uncertain_variable_data.max_confidence_value,
+            top=uncertain_variable_data.max_confidence,
             bottom=0.0,
             line_color="limegreen",
             line_width=2,
@@ -1359,11 +1439,11 @@ class CopulaAnalysis:
             line_dash="dashed",
             name="Max PDF value",
         )
-        max_probability_box = BoxAnnotation(
+        max_confidence_box = BoxAnnotation(
             left=uncertain_variable_data.design_range_start,
-            right=uncertain_variable_data.max_probability_value,
-            top=uncertain_variable_data.max_probability,
-            bottom=uncertain_variable_data.max_probability,
+            right=uncertain_variable_data.max_confidence_value,
+            top=uncertain_variable_data.max_confidence,
+            bottom=uncertain_variable_data.max_confidence,
             line_color="limegreen",
             line_width=2,
             line_alpha=1.0,
@@ -1383,19 +1463,16 @@ class CopulaAnalysis:
         p.yaxis.axis_label = "Normalised Probability"
         p.add_glyph(sample_space)
         vert_bar_plot = p.vbar(
-            x=uncertain_variable_data.design_range_intervals,
-            top=uncertain_variable_data.interval_probability,
-            width=(
-                uncertain_variable_data.design_range_intervals[-1]
-                - uncertain_variable_data.design_range_intervals[0]
-            )
-            / len(uncertain_variable_data.design_range_intervals),
+            x=uncertain_variable_data.design_range_intervals
+            + 0.5 * uncertain_variable_data.interval_width,
+            top=uncertain_variable_data.interval_confidence,
+            width=uncertain_variable_data.interval_width,
             fill_color="cornflowerblue",
         )
         p.add_layout(design_value_box)
         p.add_layout(design_value_probability_box)
         p.add_layout(max_var_box)
-        p.add_layout(max_probability_box)
+        p.add_layout(max_confidence_box)
         p.add_tools(
             HoverTool(
                 tooltips=[
@@ -1455,7 +1532,7 @@ class CopulaAnalysis:
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="max_probability_mean",
+                field="max_confidence_value",
                 title="Optimised Value",
                 formatter=general_formatter,
             ),
@@ -1471,12 +1548,12 @@ class CopulaAnalysis:
             ),
             TableColumn(
                 field="joint_input_probability",
-                title="Design Probability",
+                title="Design Confidence",
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="joint_max_probability",
-                title="Optimised Probability",
+                field="joint_max_confidence",
+                title="Optimised Confidence",
                 formatter=general_formatter,
             ),
         ]
@@ -1595,8 +1672,8 @@ class CopulaAnalysis:
             "design_range_end"
         ] = variable_data["design_range_end"]
         graph_renderer.node_renderer.data_source.data[
-            "max_probability_value"
-        ] = variable_data["max_probability_value"]
+            "max_confidence_value"
+        ] = variable_data["max_confidence_value"]
 
         graph_renderer.node_renderer.data_source.data["node_color"] = [
             PuBuGn5[3] if n in self.uq_data.itv else PuBuGn5[2]
@@ -1612,7 +1689,7 @@ class CopulaAnalysis:
         tooltips = [
             ("Name", "@name"),
             ("Description", "@description"),
-            ("Optimised value", "@max_probability_value"),
+            ("Optimised value", "@max_confidence_value"),
             ("Range start", "@design_range_start"),
             ("Range end", "@design_range_end"),
         ]
@@ -1718,11 +1795,14 @@ class uncertain_variable_data:
     design_value: float
     design_range_intervals: np.array
     interval_probability: np.array
-    max_probability_value: float
-    max_probability: float
+    interval_confidence: pd.DataFrame
+    confidence_sum: float
+    interval_sample_counts: list
+    max_confidence_value: float
+    max_confidence: float
     design_value_probability: float
     design_value_index: int
-    max_probability_index: int
+    max_confidence_index: int
     interval_width: float
     custom_data_point: float
     custom_data_point_index: float
