@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
 import networkx as nx
+from functools import reduce
 from matplotlib.lines import Line2D
 from pylab import figure
 from shapely.geometry import LineString
@@ -92,6 +93,7 @@ class UncertaintyData:
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+
         # self.uncertainties_df["pnetelin"] = self.sampled_vars_df["pnetelin"]
         # self.uncertainties_df = self.uncertainties_df.head(100)
         self.input_names = self.sampled_vars_df.columns.tolist()
@@ -110,6 +112,7 @@ class UncertaintyData:
             "betalim",
             "coheof",
             "cohbop",
+            "kappa",
             # "gapoh",
             "fvsbrnni",
             "itvar019",
@@ -137,10 +140,23 @@ class UncertaintyData:
             "num_vars": self.number_sampled_vars,
             "names": self.input_names,
         }
-        self.converged_df = self.uncertainties_df[self.uncertainties_df["ifail"] == 1.0]
-        self.unconverged_df = self.uncertainties_df[
-            self.uncertainties_df["ifail"] != 1.0
-        ]
+        try:
+            self.converged_df = self.uncertainties_df[
+                self.uncertainties_df["ifail"] == 1.0
+            ]
+            self.unconverged_df = self.uncertainties_df[
+                self.uncertainties_df["ifail"] != 1.0
+            ]
+        except KeyError as e:
+            # Exception to handle the case where there are no failed runs.
+            print(f"KeyError: {e}")
+            self.converged_df = self.uncertainties_df
+            self.unconverged_df = pd.DataFrame(
+                data=None,
+                columns=self.converged_df.columns,
+                index=self.converged_df.index,
+            )
+
         self.converged_sampled_vars_df = self.converged_df[self.input_names]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.input_names]
         self.unconverged_fom_df = self.uncertainties_df[self.figure_of_merit]
@@ -300,16 +316,33 @@ class UncertaintyData:
         """Calculate the probability of failure and its coefficient of variation (C.O.V). This is defined as the number of failed runs
         divided by the number of converged runs.
         """
-        self.failure_probability = round(
-            1 - (len(self.converged_df.index)) / len((self.uncertainties_df.index)), 2
-        )
-        self.failure_cov = round(
-            np.sqrt(
-                (1 - self.failure_probability)
-                / (self.failure_probability * len(self.uncertainties_df.index))
-            ),
-            2,
-        )
+        num_converged = len(self.converged_df.index)
+        num_sampled = len(self.uncertainties_df.index)
+        self.failure_probability = round(1 - (num_converged) / num_sampled, 2)
+        # The error on failure rate
+        try:
+            self.failure_cov = round(
+                np.sqrt(
+                    (1 - self.failure_probability)
+                    / (self.failure_probability * num_sampled)
+                ),
+                2,
+            )
+            error_on_failure_probability = np.sqrt(
+                (self.failure_probability * (1 - self.failure_probability))
+                / num_sampled
+            )
+            # Set the confidence level (e.g., 95%)
+            confidence_level = 0.95
+            # Calculate the z-score for the desired confidence level
+            z_score = 1.96  # for 95% confidence interval
+
+            # Calculate the margin of error
+            margin_of_error = z_score * error_on_failure_probability
+            self.failure_cov = round(margin_of_error, 2)
+        except ZeroDivisionError as e:
+            # When the failure rate is 1
+            self.failure_cov = 0.0
 
     def read_json(self, file):
         """Read and print a json file.
@@ -361,7 +394,7 @@ class UncertaintyData:
             y="unconverged",
             ax=ax,
             align="center",
-            label="Converged",
+            label="Significance Index",
             capsize=3,
         )
         # y-axis
@@ -375,7 +408,7 @@ class UncertaintyData:
             alpha=0.2,
             hatch="//",
             edgecolor="white",
-            label="Not significant",
+            label="Region of Insignificance",
         )
         ax.legend(fontsize=12, borderpad=0.01, ncol=1)
 
@@ -1054,20 +1087,29 @@ class CopulaAnalysis:
             )
         return design_range_start, design_range_end, design_value
 
-    def _add_interval_column(self, variable: str, design_range_intervals):
+    def _add_interval_column(self, dataframe, variable: str, design_range_intervals):
         interval_column_name = variable + "_interval"
-        self.pdf_df[interval_column_name] = pd.cut(
-            self.pdf_df[variable], bins=design_range_intervals, labels=False
+        dataframe[interval_column_name] = pd.cut(
+            dataframe[variable], bins=design_range_intervals, labels=False
         )
-        self.pdf_df[interval_column_name] = pd.to_numeric(
-            self.pdf_df[interval_column_name], errors="coerce"
+        dataframe[interval_column_name] = pd.to_numeric(
+            dataframe[interval_column_name], errors="coerce"
         )
-        if self.pdf_df[interval_column_name].dtype != "Int64":
-            self.pdf_df[interval_column_name] = self.pdf_df[
-                interval_column_name
-            ].astype("Int64")
+        if dataframe[interval_column_name].dtype != "Int64":
+            dataframe[interval_column_name] = dataframe[interval_column_name].astype(
+                "Int64"
+            )
 
     def _calculate_interval_probability(self, design_range_intervals, variable: str):
+        """Sum the pdf values in an interval.
+
+        :param design_range_intervals: _description_
+        :type design_range_intervals: _type_
+        :param variable: _description_
+        :type variable: str
+        :return: _description_
+        :rtype: _type_
+        """
         converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
@@ -1151,7 +1193,7 @@ class CopulaAnalysis:
             design_range_end,
             self.num_intervals,
         )
-        self._add_interval_column(variable, design_range_intervals)
+        self._add_interval_column(self.pdf_df, variable, design_range_intervals)
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
@@ -1165,12 +1207,20 @@ class CopulaAnalysis:
             bins=design_range_intervals,
             right=False,
         )
+        int_converged_df = pd.DataFrame()
+        int_converged_df["intervals"] = pd.cut(
+            self.uq_data.converged_df[variable],
+            bins=design_range_intervals,
+            right=False,
+        )
 
         # Count the frequency of values in each interval
         interval_counts = (
             (int_uncertainties_df["intervals"].value_counts().sort_index()).tolist()
         ) + [1]
-
+        conv_interval_counts = (
+            (int_converged_df["intervals"].value_counts().sort_index()).tolist()
+        ) + [1]
         # Display the results
 
         interval_probability = pd.Series(
@@ -1263,10 +1313,10 @@ class CopulaAnalysis:
 
         # Filter dataframes based on design and max probability values
         design_filtered_df = self._filter_dataframe_by_index(
-            data, "design_value_index", self.copula.input_names
+            self.pdf_df, data, "design_value_index", self.copula.input_names
         )
         max_confidence_filtered_df = self._filter_dataframe_by_index(
-            data, "max_confidence_index", self.copula.input_names
+            self.pdf_df, data, "max_confidence_index", self.copula.input_names
         )
 
         def modify_row(row):
@@ -1293,7 +1343,10 @@ class CopulaAnalysis:
             # design or optimised probability (probability will be greater the fewer points
             # provided)
             custom_filtered_df = self._filter_dataframe_by_index(
-                data, "custom_data_point_index", self.custom_data_point.keys()
+                self.pdf_df,
+                data,
+                "custom_data_point_index",
+                self.custom_data_point.keys(),
             )
             if custom_filtered_df.shape[0] > 0:
                 data["custom_data_point_mean"] = custom_filtered_df.mean()
@@ -1355,17 +1408,28 @@ class CopulaAnalysis:
         interval_confidence = (interval_probability * num_converged) / (
             interval_sample_counts
         )
+        A = interval_probability * num_converged
+        B = interval_sample_counts
+        Delta_A = np.sqrt(A)
+        Delta_B = np.sqrt(B)
+        C = A / B
+        Delta_C_over_C = np.sqrt((Delta_A / A) ** 2 + (Delta_B / B) ** 2)
+        Delta_C = C * Delta_C_over_C
+
         for i in range(len(interval_confidence)):
             if interval_confidence[i] == float("inf") or interval_confidence[
                 i
             ] == float("-inf"):
                 interval_confidence[i] = 0.0
+
         return interval_confidence
 
-    def _filter_dataframe_by_index(self, data, index_column, columns_to_filter):
-        """Filter dataframe based on the given index_column."""
+    def _filter_dataframe_by_index(
+        self, dataframe, variabledata, index_column, columns_to_filter
+    ):
+        """Filter dataframe based on the given index_column. Data is variable dataframe."""
         return filter_dataframe_by_columns_and_values(
-            self.pdf_df, data, columns_to_filter, index_column, self.uq_data.itv
+            dataframe, variabledata, columns_to_filter, index_column, self.uq_data.itv
         )
 
     def _calculate_custom_joint_probability(self, data):
@@ -1397,7 +1461,7 @@ class CopulaAnalysis:
         design_value_box = BoxAnnotation(
             left=uncertain_variable_data.design_value,
             right=uncertain_variable_data.design_value,
-            top=uncertain_variable_data.design_value_probability,
+            top=uncertain_variable_data.max_confidence,
             bottom=0.0,
             line_color="red",
             line_width=2,
@@ -1405,16 +1469,16 @@ class CopulaAnalysis:
             line_dash="dashed",
             name="Design Point Value",
         )
-        design_value_probability_box = BoxAnnotation(
-            left=uncertain_variable_data.design_range_start,
-            right=uncertain_variable_data.design_value,
-            top=uncertain_variable_data.design_value_probability,
-            bottom=uncertain_variable_data.design_value_probability,
-            line_color="red",
-            line_width=2,
-            line_alpha=1.0,
-            line_dash="dashed",
-        )
+        # design_value_probability_box = BoxAnnotation(
+        #     left=uncertain_variable_data.design_range_start,
+        #     right=uncertain_variable_data.design_value,
+        #     top=uncertain_variable_data.design_value_probability,
+        #     bottom=uncertain_variable_data.design_value_probability,
+        #     line_color="red",
+        #     line_width=2,
+        #     line_alpha=1.0,
+        #     line_dash="dashed",
+        # )
         sample_space = HBar(
             y=uncertain_variable_data.max_confidence * 0.5,
             right=uncertain_variable_data.design_range_end,
@@ -1470,9 +1534,9 @@ class CopulaAnalysis:
             fill_color="cornflowerblue",
         )
         p.add_layout(design_value_box)
-        p.add_layout(design_value_probability_box)
+        # p.add_layout(design_value_probability_box)
         p.add_layout(max_var_box)
-        p.add_layout(max_confidence_box)
+        # p.add_layout(max_confidence_box)
         p.add_tools(
             HoverTool(
                 tooltips=[
@@ -1482,7 +1546,7 @@ class CopulaAnalysis:
                 renderers=[vert_bar_plot],
             )
         )
-
+        p.legend
         return p
 
     def create_graph_grid(self, variables):
@@ -1863,6 +1927,26 @@ def filter_dataframe_by_columns_and_values(
     filtered_df = dataframe[filter_condition]
 
     return filtered_df
+
+
+def filter_dataframe_between_ranges(dataframe, column_name, lower_bound, upper_bound):
+    """
+    Filter a DataFrame based on a specified column and range values.
+
+    Parameters:
+    - dataframe: pandas DataFrame
+    - column_name: str, the column on which filtering is to be applied
+    - lower_bound: numeric, the lower bound of the range (inclusive)
+    - upper_bound: numeric, the upper bound of the range (inclusive)
+
+    Returns:
+    - filtered_dataframe: pandas DataFrame, the filtered DataFrame
+    """
+    mask = (dataframe[column_name] >= lower_bound) & (
+        dataframe[column_name] <= upper_bound
+    )
+    filtered_dataframe = dataframe[mask]
+    return filtered_dataframe
 
 
 def unique_cols(df):
