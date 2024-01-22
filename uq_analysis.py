@@ -926,8 +926,13 @@ class Copula:
         num_variables = len(correlation_matrix)
         figsize = (min(12, num_variables), min(10, num_variables))
 
+        correlation_matrix_df = pd.DataFrame(
+            correlation_matrix,
+            columns=self.input_data.columns,
+            index=self.input_data.columns,
+        )
         plt.figure(figsize=figsize)
-        sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", fmt=".2f")
+        sns.heatmap(correlation_matrix_df, annot=True, cmap="coolwarm", fmt=".2f")
         plt.show()
 
     def calculate_pdf(self):
