@@ -59,6 +59,7 @@ from bokeh.models import (
     Legend,
     LegendItem,
 )
+from bokeh.io import export_svgs
 
 
 class UncertaintyData:
@@ -181,7 +182,9 @@ class UncertaintyData:
             "sig_tf_case_max": "Max stress in TF coil case (Pa)",
             "powfmw": "Fusion power (MW)",
             "etath": "Thermal to electric eff. (%)",
-            "wallmw": "wallmw",
+            "wallmw": "Neutron wall-load (MW/m$^{2}$)",
+            "aspect": "Aspect ratio",
+            "tbrnmn": "Minimum burn time (s)",
         }
 
     def estimate_design_values(self, variables):
@@ -387,7 +390,9 @@ class UncertaintyData:
         """Find the input paramters influencing whether PROCESS converges."""
         fig, ax = plt.subplots(1)
         ax.tick_params(labelsize=16)
-        sumsqnamedf = self.sumsq_sensitivity_df  # .rename(self.name_dict, axis=0)
+        sumsqnamedf = self.sumsq_sensitivity_df.rename(self.name_dict, axis=0).clip(
+            lower=0.0
+        )
         # x-axis
         sumsqnamedf.plot(
             kind="barh",
@@ -397,6 +402,7 @@ class UncertaintyData:
             label="Significance Index",
             capsize=3,
         )
+
         # y-axis
         ax.set_xlabel("Influence on convergance", fontsize=20)
         ax.set_ylabel("PROCESS parameter", fontsize=20)
@@ -864,8 +870,11 @@ class Copula:
         )
         if copula_type == "unbounded":
             self.copula = GaussianMultivariate(distribution=Univariate())
+            # vine_type="
         elif copula_type == "bounded":
             self.copula = GaussianMultivariate(distribution=bounded_univariate)
+        elif copula_type == "vine":
+            self.copula = VineCopula("regular")
 
     def calculate_copula(
         self,
@@ -914,11 +923,11 @@ class Copula:
         return correlation_df
 
     def plot_correlation_matrix(self, correlation_matrix):
-        num_variables = len(self.copula_dict["columns"])
+        num_variables = len(correlation_matrix)
         figsize = (min(12, num_variables), min(10, num_variables))
 
         plt.figure(figsize=figsize)
-        sns.heatmap(self.correlation_matrix(), annot=True, cmap="coolwarm", fmt=".2f")
+        sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", fmt=".2f")
         plt.show()
 
     def calculate_pdf(self):
@@ -969,8 +978,9 @@ class Copula:
         if variable == None:
             variable = synthetic_data.columns.values
         var_df = synthetic_data[variable]
-        pdf_df = var_df.assign(pdf=self.pdf)
-        return pdf_df
+        # pdf_df = var_df.assign(pdf=self.pdf)
+        # print("function\n", pdf_df)
+        return var_df
 
     def create_cdf_df(self, variable=None, synthetic_data=None):
         synthetic_data = synthetic_data or self.synthetic_data
@@ -1110,14 +1120,17 @@ class CopulaAnalysis:
         :return: _description_
         :rtype: _type_
         """
-        converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
+        converged_intervals = (
+            self.pdf_df.groupby(variable + "_interval")[variable].count()
+            / len(self.copula.synthetic_data)
+        ) * (1.0 - self.uq_data.failure_probability)
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
         interval_probability.iloc[
             converged_intervals.index.values.astype(int)
         ] = converged_intervals.values
-        interval_probability /= interval_probability.sum()
+        # interval_probability /= interval_probability.sum()
         return interval_probability
 
     def find_description(self, variable_name, trim_after_char=80):
@@ -1193,12 +1206,14 @@ class CopulaAnalysis:
             design_range_end,
             self.num_intervals,
         )
+        # pdf_df is just a list of synthetic data, pdf_df probably isn't a good name for this going forward
         self._add_interval_column(self.pdf_df, variable, design_range_intervals)
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
+        self.pdf_df["pdf"] = interval_probability
         # Search var_pdf and map values to intervals, sum pdf over intervals.
-        converged_intervals = self.pdf_df.groupby(variable + "_interval")["pdf"].sum()
+        converged_intervals = interval_probability
         # Map values to intervals
         # Map values to intervals with "right" set to False
         int_uncertainties_df = pd.DataFrame()
@@ -1523,7 +1538,12 @@ class CopulaAnalysis:
             width=self.plot_height_width,
             title="Convergance Probability",
         )
-        p.xaxis.axis_label = uncertain_variable_data.name
+        # Check if the varialbe is in the name dictionary and replace the name with description.
+        uncertain_variable_name = self.uq_data.name_dict.get(
+            uncertain_variable_data.name, uncertain_variable_data.name
+        )
+
+        p.xaxis.axis_label = uncertain_variable_name
         p.yaxis.axis_label = "Normalised Probability"
         p.add_glyph(sample_space)
         vert_bar_plot = p.vbar(
@@ -1547,6 +1567,12 @@ class CopulaAnalysis:
             )
         )
         p.legend
+        p.title.text_font = "helvetica"  # Set the font family
+
+        # Save the plot as svg
+        p.output_backend = "svg"
+        export_svgs(p, filename="plots/" + uncertain_variable_data.name + "_plot.svg")
+
         return p
 
     def create_graph_grid(self, variables):
