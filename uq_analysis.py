@@ -874,7 +874,7 @@ class Copula:
         elif copula_type == "bounded":
             self.copula = GaussianMultivariate(distribution=bounded_univariate)
         elif copula_type == "vine":
-            self.copula = VineCopula("regular")
+            self.copula = VineCopula("regular")  # "center","regular","direct"
 
     def calculate_copula(
         self,
@@ -909,20 +909,25 @@ class Copula:
         # Output the copula parameters to a dict and print some of them.
         self.copula_dict = self.copula.to_dict()
 
-    def correlation_matrix(self):
-        """Retrieve the correlation matrix and affix the variable names as column and index.
-
+    def correlation_matrix(self, correlation_matrix):
+        """Create a correlation matrix dataframe and affix the variable names as column and index.
+        It may not be necessary to keep this as a function.
         :return: correlation_df
         :rtype: pandas.dataframe
         """
         correlation_df = pd.DataFrame(
-            self.copula_dict["correlation"],
-            columns=self.copula_dict["columns"],
-            index=self.copula_dict["columns"],
+            correlation_matrix,
+            columns=self.input_data.columns,
+            index=self.input_data.columns,
         )
         return correlation_df
 
     def plot_correlation_matrix(self, correlation_matrix):
+        """Take the correlation dataframe and plot it in a heatmap style grid.
+
+        :param correlation_matrix: Correlation dataframe, index and columns should be the names of the parameters.
+        :type correlation_matrix: Pandas DataFrame
+        """
         num_variables = len(correlation_matrix)
         figsize = (min(12, num_variables), min(10, num_variables))
 
@@ -1082,6 +1087,9 @@ class CopulaAnalysis:
         self.pdf_df.sort_values(variable, inplace=True)
 
     def _get_design_range_and_value(self, variable: str):
+        """Look for the minimum/maximum of the design range or the synthetic range.
+        Sometimes synthetic can extend beyond the real data. This data is used to create
+        grid plots later."""
         if variable in self.uq_data.input_names:
             design_range_start, design_range_end, design_value = (
                 min(
@@ -1550,6 +1558,7 @@ class CopulaAnalysis:
 
         p.xaxis.axis_label = uncertain_variable_name
         p.yaxis.axis_label = "Normalised Probability"
+        print(uncertain_variable_data.design_range_intervals)
         p.add_glyph(sample_space)
         vert_bar_plot = p.vbar(
             x=uncertain_variable_data.design_range_intervals
