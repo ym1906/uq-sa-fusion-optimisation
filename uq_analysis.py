@@ -1259,10 +1259,8 @@ class CopulaAnalysis:
         ] = converged_intervals.values
         interval_probability = interval_probability / interval_probability.sum()
 
-        # Interval width
-        interval_width = (design_range_intervals[-1] - design_range_intervals[0]) / len(
-            design_range_intervals
-        )
+        # Interval width. (The width of intervals in parameter space)
+        interval_width = design_range_intervals[1] - design_range_intervals[0]
         interval_confidence = self._calculate_confidence(
             interval_probability, self.uq_data.number_of_converged_runs, interval_counts
         )
