@@ -271,50 +271,6 @@ class UncertaintyData:
         ]
         return significant_df.index.map(str).values
 
-    def find_most_sensitive_interaction(self, parameters_to_search):
-        """Perform a sensitivity analysis on a list of variables, store if influential."""
-        for item in parameters_to_search:
-            self.figure_of_merit = item
-            # The error here is caused by paramters which have the same value in every run.
-            # For example q0 which is 1.0 for every run.
-            self.calculate_sensitivity(item)
-            if self.sensitivity_df.isnull().values.any() & self.sensitivity_df.empty:
-                pass
-            else:
-                new_df = self.sensitivity_df[
-                    self.sensitivity_df["S1"] > self.significance_level
-                ]
-                if new_df.empty:
-                    pass
-                else:
-                    if len(new_df) == self.number_sampled_vars:
-                        pass
-                    else:
-                        new_df.insert(2, "variable", item)
-                        self.item_with_sensitivity.append(item)
-                        self.sens_dict[item] = new_df.to_dict()
-                        self.list_new_dfs.append(new_df)
-        print(self.item_with_sensitivity)
-        mc_run_df = pd.concat(self.list_new_dfs)
-        print(mc_run_df)
-        for name in self.input_names:
-            if name in mc_run_df.index:
-                name_df = mc_run_df.loc[[name]]
-                print("Number influenced by ", name, len(name_df))
-                print(name_df)
-                name_df.to_json(
-                    self.path_in
-                    + name
-                    + "_influence_"
-                    + str(self.figure_of_merit)
-                    + ".json",
-                    orient="split",
-                    compression="infer",
-                    index="true",
-                )
-        with open("result_05si.json", "w") as fp:
-            json.dump(self.sens_dict, fp)
-
     def calculate_failure_probability(self):
         """Calculate the probability of failure and its coefficient of variation (C.O.V). This is defined as the number of failed runs
         divided by the number of converged runs.
@@ -1193,7 +1149,6 @@ class CopulaAnalysis:
             included_index.append(included_index)
             cumulative_sum += probability
             included_probabilities.append(probability)
-            # print(index)
             included_index.append(index)
             # Check if the cumulative sum exceeds the desired probability
             if cumulative_sum >= desired_probability:
@@ -1556,7 +1511,6 @@ class CopulaAnalysis:
 
         p.xaxis.axis_label = uncertain_variable_name
         p.yaxis.axis_label = "Normalised Probability"
-        print(uncertain_variable_data.design_range_intervals)
         p.add_glyph(sample_space)
         vert_bar_plot = p.vbar(
             x=uncertain_variable_data.design_range_intervals
