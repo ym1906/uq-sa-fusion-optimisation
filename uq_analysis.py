@@ -67,39 +67,26 @@ class UncertaintyData:
     folder for the run data. The tool looks for hdf files containing uncertainty data, merges them, and has functions
     to clean, analyse, and plot the data."""
 
-    def __init__(self, path_to_uq_data_folder, figure_of_merit, use_scoping_data=False):
+    def __init__(
+        self,
+        path_to_uq_data_folder,
+        figure_of_merit,
+        input_parameters,
+        use_scoping_data=False,
+    ):
         self.path_in = path_to_uq_data_folder
         self.figure_of_merit = figure_of_merit
-        self.sample_vars_h5_path = "param_values.h5"
-        self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
-            use_scoping_data
-        )
-        self.uncertainties_df = self.uncertainties_df.drop(
-            columns=[
-                "procver",
-                "date",
-                "time",
-                "username",
-                "runtitle",
-                "tagno",
-                "branch_name",
-                "commsg",
-                "fileprefix",
-                "tauelaw",
-                # "radius_of_plasma-facing_side_of_inner_leg_should_be_[m]",
-                "error_id",
-            ]
-        )
+
+        # self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
+        #     use_scoping_data
+        # )
+        self.uncertainties_df = self.merge_hdf_files()
+
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
-
-        # self.uncertainties_df["pnetelin"] = self.sampled_vars_df["pnetelin"]
-        # self.uncertainties_df = self.uncertainties_df.head(100)
-        self.input_names = self.sampled_vars_df.columns.tolist()
-        if "pnetelin" in self.input_names:
-            self.input_names.remove("pnetelin")
+        self.input_names = input_parameters
         self.itv = [
             "bt",
             "te",
@@ -141,6 +128,9 @@ class UncertaintyData:
             "num_vars": self.number_sampled_vars,
             "names": self.input_names,
         }
+
+        # Drop the unnecessary levels from the columns
+        self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
         try:
             self.converged_df = self.uncertainties_df[
                 self.uncertainties_df["ifail"] == 1.0
@@ -485,7 +475,7 @@ class UncertaintyData:
         )
         plt.show()
 
-    def merge_hdf_files(self, use_scoping_data):
+    def merge_hdf_files(self):
         """Looks for uncertainty hdf files in the working folder and merges them into a
         single dataframe for analysis.
 
@@ -497,24 +487,10 @@ class UncertaintyData:
         for root, dirs, files in os.walk(self.path_in):
             for file in files:
                 pos_hdf = root + os.sep + file
-                if (
-                    use_scoping_data == True
-                    and pos_hdf.endswith(".h5")
-                    and "scoping_data" in pos_hdf
-                ):
+                if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
                     extra_uncertainties_df = pd.read_hdf(pos_hdf)
                     list_uncertainties_dfs.append(extra_uncertainties_df)
-                elif (
-                    use_scoping_data == False
-                    and pos_hdf.endswith(".h5")
-                    and "uncertainties_data" in pos_hdf
-                ):
-                    extra_uncertainties_df = pd.read_hdf(pos_hdf)
-                    list_uncertainties_dfs.append(extra_uncertainties_df)
-                if pos_hdf.endswith(".h5") and "param_values" in pos_hdf:
-                    extra_params_df = pd.read_hdf(pos_hdf)
-                    list_params_dfs.append(extra_params_df)
-        return pd.concat(list_uncertainties_dfs), pd.concat(list_params_dfs)
+        return pd.concat(list_uncertainties_dfs)
 
     def create_scatter_plot(
         self,
