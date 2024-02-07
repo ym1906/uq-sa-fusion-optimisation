@@ -48,6 +48,7 @@ from bokeh.models import (
     Range1d,
     MultiLine,
     Circle,
+    Whisker,
     Plot,
     TapTool,
     NodesAndLinkedEdges,
@@ -916,7 +917,9 @@ class Copula:
         compare_3d(input_data_3d, synthetic_data_3d)
 
     def create_pdf_df(self, variable=None, synthetic_data=None):
-        synthetic_data = synthetic_data or self.synthetic_data
+        synthetic_data = (
+            synthetic_data if synthetic_data is not None else self.synthetic_data
+        )
         if variable == None:
             variable = synthetic_data.columns.values
         var_df = synthetic_data[variable]
@@ -1004,7 +1007,9 @@ class CopulaAnalysis:
         self.variable_data = {}  # list of variable data classes.
         self.plot_height_width = 350  # height and width of plots.
         self.design_values_df = uq_data.estimate_design_values(copula.input_names)
-        self.pdf_df = self.copula.create_pdf_df(self.copula.input_names)
+        self.pdf_df = self.copula.create_pdf_df(
+            self.copula.input_names
+        )  # , self.uq_data.converged_df)
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
 
@@ -1192,7 +1197,7 @@ class CopulaAnalysis:
 
         # Interval width. (The width of intervals in parameter space)
         interval_width = design_range_intervals[1] - design_range_intervals[0]
-        interval_confidence = self._calculate_confidence(
+        interval_confidence, interval_con_unc = self._calculate_confidence(
             interval_probability, self.uq_data.number_of_converged_runs, interval_counts
         )
         # Store the results for plotting in dataframe
@@ -1239,6 +1244,7 @@ class CopulaAnalysis:
             design_range_intervals=design_range_intervals,
             interval_probability=interval_probability,
             interval_confidence=interval_confidence,
+            interval_confidence_uncertainty=interval_con_unc,
             confidence_sum=sum(interval_confidence),
             interval_sample_counts=interval_counts,
             max_confidence_value=max_confidence_design_interval
@@ -1379,7 +1385,7 @@ class CopulaAnalysis:
             ] == float("-inf"):
                 interval_confidence[i] = 0.0
 
-        return interval_confidence
+        return interval_confidence, Delta_C
 
     def _filter_dataframe_by_index(
         self, dataframe, variabledata, index_column, columns_to_filter
@@ -1426,6 +1432,8 @@ class CopulaAnalysis:
             line_dash="dashed",
             name="Design Point Value",
         )
+
+        #
         # design_value_probability_box = BoxAnnotation(
         #     left=uncertain_variable_data.design_range_start,
         #     right=uncertain_variable_data.design_value,
@@ -1494,11 +1502,31 @@ class CopulaAnalysis:
             top=uncertain_variable_data.interval_confidence,
             width=uncertain_variable_data.interval_width,
             fill_color="cornflowerblue",
+            alpha=0.5,
         )
+        errsource = ColumnDataSource(
+            data=dict(
+                base=uncertain_variable_data.design_range_intervals
+                + 0.5 * uncertain_variable_data.interval_width,
+                lower=uncertain_variable_data.interval_confidence
+                + uncertain_variable_data.interval_confidence_uncertainty,
+                upper=uncertain_variable_data.interval_confidence
+                - uncertain_variable_data.interval_confidence_uncertainty,
+            )
+        )
+
+        whisker = Whisker(
+            source=errsource,
+            base="base",
+            upper="upper",
+            lower="lower",
+        )
+
         p.add_layout(design_value_box)
         # p.add_layout(design_value_probability_box)
         p.add_layout(max_var_box)
         # p.add_layout(max_confidence_box)
+        p.add_layout(whisker)
         p.add_tools(
             HoverTool(
                 tooltips=[
@@ -1828,6 +1856,7 @@ class uncertain_variable_data:
     design_range_intervals: np.array
     interval_probability: np.array
     interval_confidence: pd.DataFrame
+    interval_confidence_uncertainty: pd.DataFrame
     confidence_sum: float
     interval_sample_counts: list
     max_confidence_value: float
