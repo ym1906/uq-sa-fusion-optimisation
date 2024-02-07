@@ -916,15 +916,14 @@ class Copula:
 
         compare_3d(input_data_3d, synthetic_data_3d)
 
-    def create_pdf_df(self, variable=None, synthetic_data=None):
+    def create_converged_data(self, variable=None, synthetic_data=None):
         synthetic_data = (
             synthetic_data if synthetic_data is not None else self.synthetic_data
         )
         if variable == None:
             variable = synthetic_data.columns.values
         var_df = synthetic_data[variable]
-        # pdf_df = var_df.assign(pdf=self.pdf)
-        # print("function\n", pdf_df)
+
         return var_df
 
     def create_cdf_df(self, variable=None, synthetic_data=None):
@@ -943,13 +942,13 @@ class Copula:
         :param synthetic_data: _description_, defaults to None
         :type synthetic_data: _type_, optional
         """
-        pdf_df = self.create_pdf_df(variable, synthetic_data)
-        pdf_df.sort_values(variable).set_index(variable).plot(kind="area")
+        converged_data = self.create_converged_data(variable, synthetic_data)
+        converged_data.sort_values(variable).set_index(variable).plot(kind="area")
 
     def find_max_pdf(self, variable=None, synthetic_data=None, print_data=False):
         """Find the maximum pdf value and its corresponding data value."""
-        pdf_df = self.create_pdf_df(variable, synthetic_data)
-        max_pdf = pdf_df.loc[pdf_df["pdf"].idxmax()]
+        converged_data = self.create_converged_data(variable, synthetic_data)
+        max_pdf = converged_data.loc[converged_data["pdf"].idxmax()]
         if print_data == True:
             print(max_pdf)
         return max_pdf
@@ -979,12 +978,12 @@ class Copula:
         ax1.legend(fontsize=12, borderpad=0.01, ncol=1)
 
 
-class CopulaAnalysis:
+class ConfidenceAnalysis:
     """A tool for plotting UQ and Copula data for analysis."""
 
     def __init__(self, uq_data, copula, num_intervals=10, custom_data_point=None):
         """
-        Initialize the CopulaAnalysis instance.
+        Initialize the ConfidenceAnalysis instance.
 
         Parameters:
         - uq_data: UQ data for analysis.
@@ -1005,11 +1004,11 @@ class CopulaAnalysis:
         self.uq_data = uq_data
         self.plot_list = []  # list of plots.
         self.variable_data = {}  # list of variable data classes.
-        self.plot_height_width = 350  # height and width of plots.
+        self.plot_height_width = 250  # height and width of plots.
         self.design_values_df = uq_data.estimate_design_values(copula.input_names)
-        self.pdf_df = self.copula.create_pdf_df(
-            self.copula.input_names
-        )  # , self.uq_data.converged_df)
+        # Here you could switch between real and synthetic data. In general, use the real data
+        # but synthetic may be useful if convergence is low.
+        self.converged_data = self.uq_data.converged_df
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
 
@@ -1020,23 +1019,18 @@ class CopulaAnalysis:
         # 4. Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
 
-    def _sort_pdf_df_by_variable(self, variable: str):
-        self.pdf_df.sort_values(variable, inplace=True)
+    def _sort_converged_data_by_variable(self, variable: str):
+        self.converged_data.sort_values(variable, inplace=True)
 
     def _get_design_range_and_value(self, variable: str):
         """Look for the minimum/maximum of the design range or the synthetic range.
         Sometimes synthetic can extend beyond the real data. This data is used to create
         grid plots later."""
+        # need to rework this slightly for using synthetic data separately todo.
         if variable in self.uq_data.input_names:
             design_range_start, design_range_end, design_value = (
-                min(
-                    self.uq_data.uncertainties_df[variable].min(),
-                    self.copula.synthetic_data[variable].min(),
-                ),
-                max(
-                    self.uq_data.uncertainties_df[variable].max(),
-                    self.copula.synthetic_data[variable].max(),
-                ),
+                self.uq_data.uncertainties_df[variable].min(),
+                self.uq_data.uncertainties_df[variable].max(),
                 self.uq_data.uncertainties_df[variable].mean(),
             )
         else:
@@ -1071,8 +1065,8 @@ class CopulaAnalysis:
         :rtype: _type_
         """
         converged_intervals = (
-            self.pdf_df.groupby(variable + "_interval")[variable].count()
-            / len(self.copula.synthetic_data)
+            self.converged_data.groupby(variable + "_interval")[variable].count()
+            / len(self.converged_data)
         ) * (1.0 - self.uq_data.failure_probability)
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
@@ -1141,8 +1135,8 @@ class CopulaAnalysis:
         The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
         This value is normalised, which gives the probability that a converged point has come from this interval.
         """
-        # Sort the pdf_df by the variable
-        self._sort_pdf_df_by_variable(variable)
+        # Sort the converged_data by the variable
+        self._sort_converged_data_by_variable(variable)
         (
             design_range_start,
             design_range_end,
@@ -1155,12 +1149,12 @@ class CopulaAnalysis:
             design_range_end,
             self.num_intervals,
         )
-        # pdf_df is just a list of synthetic data, pdf_df probably isn't a good name for this going forward
-        self._add_interval_column(self.pdf_df, variable, design_range_intervals)
+        # converged_data is just a list of synthetic data, converged_data probably isn't a good name for this going forward
+        self._add_interval_column(self.converged_data, variable, design_range_intervals)
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
-        self.pdf_df["pdf"] = interval_probability
+        self.converged_data["pdf"] = interval_probability
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = interval_probability
         # Map values to intervals
@@ -1171,6 +1165,7 @@ class CopulaAnalysis:
             bins=design_range_intervals,
             right=False,
         )
+        # This is the number sampled, (includes unconverged samples)
         int_converged_df = pd.DataFrame()
         int_converged_df["intervals"] = pd.cut(
             self.uq_data.converged_df[variable],
@@ -1178,7 +1173,7 @@ class CopulaAnalysis:
             right=False,
         )
 
-        # Count the frequency of values in each interval
+        # Count the frequency of values in each interval (converged+unconverged)
         interval_counts = (
             (int_uncertainties_df["intervals"].value_counts().sort_index()).tolist()
         ) + [1]
@@ -1193,10 +1188,13 @@ class CopulaAnalysis:
         interval_probability.iloc[
             converged_intervals.index.values.astype(int)
         ] = converged_intervals.values
+        # This is the probability that, of converged samples, it will be found in a given interval.
         interval_probability = interval_probability / interval_probability.sum()
 
         # Interval width. (The width of intervals in parameter space)
         interval_width = design_range_intervals[1] - design_range_intervals[0]
+        # Interval counts is total sampled intervals (converged+unconverged).
+        # Interval probability is
         interval_confidence, interval_con_unc = self._calculate_confidence(
             interval_probability, self.uq_data.number_of_converged_runs, interval_counts
         )
@@ -1276,10 +1274,10 @@ class CopulaAnalysis:
 
         # Filter dataframes based on design and max probability values
         design_filtered_df = self._filter_dataframe_by_index(
-            self.pdf_df, data, "design_value_index", self.copula.input_names
+            self.converged_data, data, "design_value_index", self.copula.input_names
         )
         max_confidence_filtered_df = self._filter_dataframe_by_index(
-            self.pdf_df, data, "max_confidence_index", self.copula.input_names
+            self.converged_data, data, "max_confidence_index", self.copula.input_names
         )
 
         def modify_row(row):
@@ -1306,7 +1304,7 @@ class CopulaAnalysis:
             # design or optimised probability (probability will be greater the fewer points
             # provided)
             custom_filtered_df = self._filter_dataframe_by_index(
-                self.pdf_df,
+                self.converged_data,
                 data,
                 "custom_data_point_index",
                 self.custom_data_point.keys(),
@@ -1371,13 +1369,14 @@ class CopulaAnalysis:
         interval_confidence = (interval_probability * num_converged) / (
             interval_sample_counts
         )
-        A = interval_probability * num_converged
-        B = interval_sample_counts
-        Delta_A = np.sqrt(A)
-        Delta_B = np.sqrt(B)
-        C = A / B
-        Delta_C_over_C = np.sqrt((Delta_A / A) ** 2 + (Delta_B / B) ** 2)
-        Delta_C = C * Delta_C_over_C
+        converged_interval_count = interval_probability * num_converged
+        delta_converged_interval_count = np.sqrt(converged_interval_count)
+        delta_interval_sample_counts = np.sqrt(interval_sample_counts)
+        delta_c_over_c = np.sqrt(
+            (delta_converged_interval_count / converged_interval_count) ** 2
+            + (delta_interval_sample_counts / interval_sample_counts) ** 2
+        )
+        delta_confidence = interval_confidence * delta_c_over_c
 
         for i in range(len(interval_confidence)):
             if interval_confidence[i] == float("inf") or interval_confidence[
@@ -1385,7 +1384,7 @@ class CopulaAnalysis:
             ] == float("-inf"):
                 interval_confidence[i] = 0.0
 
-        return interval_confidence, Delta_C
+        return interval_confidence, delta_confidence
 
     def _filter_dataframe_by_index(
         self, dataframe, variabledata, index_column, columns_to_filter
