@@ -61,6 +61,9 @@ from bokeh.models import (
     LegendItem,
 )
 from bokeh.io import export_svgs
+import numpy as np
+from itertools import combinations
+from scipy.optimize import minimize
 
 
 class UncertaintyData:
@@ -1014,10 +1017,61 @@ class ConfidenceAnalysis:
 
         # 3. Calculate interval probabilities for each variable
         for var in self.copula.input_names:
-            self.calculate_variable_probabilities(var)
+            best_metric = float("-inf")
+            best_config = None
+            for num_intervals in range(2, 6):
+                # I arrived at these values after playing around a bit, more careful examination needed.
+                # I think it would be better to check if I can now eliminate the "ghost" interval at the end.
+                weight_confidence = 1.0
+                weight_overlap = 0.05
+                variable_data = self.calculate_variable_probabilities(
+                    variable=var, num_intervals=num_intervals
+                )
 
+                # Perform grid search with different configurations
+                confidences_grid = variable_data.interval_confidence.values
+                errors_grid = variable_data.interval_confidence_uncertainty.values
+
+                # Calculate the metric for the current configuration
+                current_metric = self.calculate_metric(
+                    confidences_grid, errors_grid, weight_confidence, weight_overlap
+                )
+                # Update best configuration if the metric is improved
+                if current_metric > best_metric:
+                    best_metric = current_metric
+                    best_config = (confidences_grid, errors_grid)
+            # print(var)
+            # print("Best Configuration:")
+            # print("Confidences:", best_config[0])
+            # print("Errors:", best_config[1])
+            # print("Best Metric:", best_metric)
+            self.calculate_variable_probabilities(var, len(best_config[0]))
         # 4. Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
+
+    # Define a function to calculate the metric
+    def calculate_metric(self, confidences, errors, weight_confidence, weight_overlap):
+        metric = sum(
+            weight_confidence * confidences
+            - weight_overlap * self.overlap(confidences, errors)
+        )
+        return metric
+
+    # Define a function to calculate the overlap between intervals
+    def overlap(self, confidences, errors):
+        overlaps = []
+        for pair in combinations(range(len(confidences)), 2):
+            i, j = pair
+            overlap_area = max(
+                0,
+                min(confidences[i] + errors[i], confidences[j] + errors[j])
+                - max(confidences[i] - errors[i], confidences[j] - errors[j]),
+            )
+            union_area = min(
+                confidences[i] + errors[i], confidences[j] + errors[j]
+            ) - max(confidences[i] - errors[i], confidences[j] - errors[j])
+            overlaps.append(overlap_area / union_area)
+        return sum(overlaps)
 
     def _sort_converged_data_by_variable(self, variable: str):
         self.converged_data.sort_values(variable, inplace=True)
@@ -1071,9 +1125,9 @@ class ConfidenceAnalysis:
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
-        interval_probability.iloc[
-            converged_intervals.index.values.astype(int)
-        ] = converged_intervals.values
+        interval_probability.iloc[converged_intervals.index.values.astype(int)] = (
+            converged_intervals.values
+        )
         # interval_probability /= interval_probability.sum()
         return interval_probability
 
@@ -1130,7 +1184,7 @@ class ConfidenceAnalysis:
                 break
         return included_index
 
-    def calculate_variable_probabilities(self, variable: str):
+    def calculate_variable_probabilities(self, variable: str, num_intervals: int):
         """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
         The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
         This value is normalised, which gives the probability that a converged point has come from this interval.
@@ -1147,7 +1201,7 @@ class ConfidenceAnalysis:
         design_range_intervals = np.linspace(
             design_range_start,
             design_range_end,
-            self.num_intervals,
+            num_intervals,
         )
         # converged_data is just a list of synthetic data, converged_data probably isn't a good name for this going forward
         self._add_interval_column(self.converged_data, variable, design_range_intervals)
@@ -1185,9 +1239,9 @@ class ConfidenceAnalysis:
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
-        interval_probability.iloc[
-            converged_intervals.index.values.astype(int)
-        ] = converged_intervals.values
+        interval_probability.iloc[converged_intervals.index.values.astype(int)] = (
+            converged_intervals.values
+        )
         # This is the probability that, of converged samples, it will be found in a given interval.
         interval_probability = interval_probability / interval_probability.sum()
 
@@ -1258,6 +1312,8 @@ class ConfidenceAnalysis:
         )
 
         self.variable_data[variable] = variable_data
+
+        return variable_data
 
     def modify_data(self, variable_data):
         """Convert variable data into a format for plotting graphs and tables.
@@ -1717,22 +1773,22 @@ class ConfidenceAnalysis:
         G = nx.relabel_nodes(networkx, mapping)
         graph_renderer = from_networkx(G, nx.spring_layout, k=0.9, center=(0, 0))
         graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
-        graph_renderer.node_renderer.data_source.data[
-            "name"
-        ] = variable_data.index.tolist()
+        graph_renderer.node_renderer.data_source.data["name"] = (
+            variable_data.index.tolist()
+        )
 
         graph_renderer.node_renderer.data_source.data["description"] = variable_data[
             "description"
         ]
-        graph_renderer.node_renderer.data_source.data[
-            "design_range_start"
-        ] = variable_data["design_range_start"]
-        graph_renderer.node_renderer.data_source.data[
-            "design_range_end"
-        ] = variable_data["design_range_end"]
-        graph_renderer.node_renderer.data_source.data[
-            "max_confidence_value"
-        ] = variable_data["max_confidence_value"]
+        graph_renderer.node_renderer.data_source.data["design_range_start"] = (
+            variable_data["design_range_start"]
+        )
+        graph_renderer.node_renderer.data_source.data["design_range_end"] = (
+            variable_data["design_range_end"]
+        )
+        graph_renderer.node_renderer.data_source.data["max_confidence_value"] = (
+            variable_data["max_confidence_value"]
+        )
 
         graph_renderer.node_renderer.data_source.data["node_color"] = [
             PuBuGn5[3] if n in self.uq_data.itv else PuBuGn5[2]
