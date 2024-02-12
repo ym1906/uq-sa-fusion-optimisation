@@ -984,7 +984,15 @@ class Copula:
 class ConfidenceAnalysis:
     """A tool for plotting UQ and Copula data for analysis."""
 
-    def __init__(self, uq_data, copula, num_intervals=10, custom_data_point=None):
+    def __init__(
+        self,
+        uq_data,
+        copula,
+        num_intervals=3,
+        weight_confidence=1.0,
+        weight_overlap=0.5,
+        custom_data_point=None,
+    ):
         """
         Initialize the ConfidenceAnalysis instance.
 
@@ -1003,6 +1011,8 @@ class ConfidenceAnalysis:
 
         # 2. Attribute Initialization
         self.num_intervals = num_intervals
+        self.weight_confidence = weight_confidence
+        self.weight_overlap = weight_overlap
         self.copula = copula
         self.uq_data = uq_data
         self.plot_list = []  # list of plots.
@@ -1019,11 +1029,9 @@ class ConfidenceAnalysis:
         for var in self.copula.input_names:
             best_metric = float("-inf")
             best_config = None
-            for num_intervals in range(2, 6):
+            for num_intervals in range(2, 7):
                 # I arrived at these values after playing around a bit, more careful examination needed.
                 # I think it would be better to check if I can now eliminate the "ghost" interval at the end.
-                weight_confidence = 1.0
-                weight_overlap = 0.05
                 variable_data = self.calculate_variable_probabilities(
                     variable=var, num_intervals=num_intervals
                 )
@@ -1034,7 +1042,10 @@ class ConfidenceAnalysis:
 
                 # Calculate the metric for the current configuration
                 current_metric = self.calculate_metric(
-                    confidences_grid, errors_grid, weight_confidence, weight_overlap
+                    confidences_grid,
+                    errors_grid,
+                    self.weight_confidence,
+                    self.weight_overlap,
                 )
                 # Update best configuration if the metric is improved
                 if current_metric > best_metric:
@@ -1301,6 +1312,8 @@ class ConfidenceAnalysis:
             interval_sample_counts=interval_counts,
             max_confidence_value=max_confidence_design_interval
             + (0.5 * interval_width),
+            max_confidence_lb=max_confidence_design_interval,
+            max_confidence_ub=max_confidence_design_interval + interval_width,
             max_confidence=max_confidence,
             design_value_probability=design_value_probability,
             design_value_index=design_value_index,
@@ -1559,6 +1572,7 @@ class ConfidenceAnalysis:
             fill_color="cornflowerblue",
             alpha=0.5,
         )
+
         errsource = ColumnDataSource(
             data=dict(
                 base=uncertain_variable_data.design_range_intervals
@@ -1657,8 +1671,13 @@ class ConfidenceAnalysis:
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="interval_width",
-                title="Interval Width",
+                field="max_confidence_lb",
+                title="Optimised LB",
+                formatter=general_formatter,
+            ),
+            TableColumn(
+                field="max_confidence_ub",
+                title="Optimised UB",
                 formatter=general_formatter,
             ),
             TableColumn(
@@ -1915,6 +1934,8 @@ class uncertain_variable_data:
     confidence_sum: float
     interval_sample_counts: list
     max_confidence_value: float
+    max_confidence_lb: float
+    max_confidence_ub: float
     max_confidence: float
     design_value_probability: float
     design_value_index: int
