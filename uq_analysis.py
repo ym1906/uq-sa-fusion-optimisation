@@ -840,6 +840,7 @@ class Copula:
         self.sampled_input_data = self.input_data[self.variable_names].sample(
             n=input_sample_size, random_state=1
         )
+        print(self.sampled_input_data)
         self.copula.fit(self.sampled_input_data)
         # Sample from the copula to create synthetic data.
         self.synthetic_data = self.copula.sample(synthetic_sample_size)
@@ -995,7 +996,7 @@ class ConfidenceAnalysis:
     def __init__(
         self,
         uq_data,
-        copula,
+        input_names,
         num_intervals=3,
         weight_confidence=1.0,
         weight_overlap=0.5,
@@ -1014,27 +1015,29 @@ class ConfidenceAnalysis:
         # 1. Parameter Validation
         if not isinstance(uq_data, UncertaintyData):
             raise ValueError("uq_data must be of type UQDataType.")
-        if not isinstance(copula, Copula):
-            raise ValueError("copula must be an instance of CopulaType.")
+        # if not isinstance(copula, Copula):
+        #     raise ValueError("copula must be an instance of CopulaType.")
 
         # 2. Attribute Initialization
         self.num_intervals = num_intervals
         self.weight_confidence = weight_confidence
         self.weight_overlap = weight_overlap
-        self.copula = copula
         self.uq_data = uq_data
+        self.input_names = input_names
         self.plot_list = []  # list of plots.
         self.variable_data = {}  # list of variable data classes.
-        self.plot_height_width = 250  # height and width of plots.
-        self.design_values_df = uq_data.estimate_design_values(copula.input_names)
+        self.plot_height_width = 275  # height and width of plots.
+        self.design_values_df = uq_data.estimate_design_values(self.input_names)
         # Here you could switch between real and synthetic data. In general, use the real data
         # but synthetic may be useful if convergence is low.
-        self.converged_data = self.uq_data.converged_df  # self.copula.synthetic_data  #
+        self.converged_data = (
+            self.uq_data.converged_df
+        )  # self.uq_data.converged_df  # self.copula.synthetic_data  #
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
 
         # 3. Calculate interval probabilities for each variable
-        for var in self.copula.input_names:
+        for var in self.input_names:
             best_metric = float("-inf")
             best_config = None
             for num_intervals in range(
@@ -1095,6 +1098,10 @@ class ConfidenceAnalysis:
                 confidences[i] + errors[i], confidences[j] + errors[j]
             ) - max(confidences[i] - errors[i], confidences[j] - errors[j])
             overlaps.append(overlap_area / union_area)
+            overlaps.append(
+                overlap_area / union_area if union_area != 0 else 0
+            )  # Handle division by zero
+
         # Debugging output
         # print(f"Overlap Area: {overlap_area}, Union Area: {union_area}")
         # print(f"Confidences: {confidences}")
@@ -1269,11 +1276,11 @@ class ConfidenceAnalysis:
 
         # Count the frequency of values in each interval (converged+unconverged)
         interval_counts = (
-            (int_uncertainties_df["intervals"].value_counts().sort_index()).tolist()
-        ) + [1]
+            int_uncertainties_df["intervals"].value_counts().sort_index()
+        ).tolist()
         conv_interval_counts = (
-            (int_converged_df["intervals"].value_counts().sort_index()).tolist()
-        ) + [1]
+            int_converged_df["intervals"].value_counts().sort_index()
+        ).tolist()
         # Display the results
 
         interval_probability = pd.Series(
@@ -1284,6 +1291,7 @@ class ConfidenceAnalysis:
         )
         # This is the probability that, of converged samples, it will be found in a given interval.
         interval_probability = interval_probability / interval_probability.sum()
+        interval_probability = interval_probability[:-1]
         # Interval width. (The width of intervals in parameter space)#
         if num_intervals == 1:
             interval_width = design_range_end - design_range_start
@@ -1316,12 +1324,6 @@ class ConfidenceAnalysis:
         max_confidence = interval_confidence.max()
         max_confidence_index = interval_confidence.argmax()
         max_confidence_design_interval = design_range_intervals[max_confidence_index]
-        # Delete this function if not required
-        x = self.sum_intervals_to_probability(
-            interval_endpoints=design_range_intervals,
-            interval_probabilities=interval_confidence,
-            desired_probability=0.9,
-        )
         # Check if a custom_data_point is provided
         if self.custom_data_point is not None:
             if variable in self.custom_data_point.keys():
@@ -1349,7 +1351,7 @@ class ConfidenceAnalysis:
             design_range_start=design_range_start,
             design_range_end=design_range_end,
             design_value=design_value,
-            design_range_intervals=design_range_bins,
+            design_range_intervals=design_range_intervals,
             interval_probability=interval_probability,
             interval_confidence=interval_confidence,
             interval_confidence_uncertainty=interval_con_unc,
@@ -1388,10 +1390,10 @@ class ConfidenceAnalysis:
 
         # Filter dataframes based on design and max probability values
         design_filtered_df = self._filter_dataframe_by_index(
-            self.converged_data, data, "design_value_index", self.copula.input_names
+            self.converged_data, data, "design_value_index", self.input_names
         )
         max_confidence_filtered_df = self._filter_dataframe_by_index(
-            self.converged_data, data, "max_confidence_index", self.copula.input_names
+            self.converged_data, data, "max_confidence_index", self.input_names
         )
 
         def modify_row(row):
@@ -1494,12 +1496,11 @@ class ConfidenceAnalysis:
         )
         delta_confidence = interval_confidence * delta_c_over_c
 
-        for i in range(len(interval_confidence)):
+        for i in range(len(interval_confidence - 1)):
             if interval_confidence[i] == float("inf") or interval_confidence[
                 i
             ] == float("-inf"):
                 interval_confidence[i] = 0.0
-
         return interval_confidence, delta_confidence
 
     def _filter_dataframe_by_index(
