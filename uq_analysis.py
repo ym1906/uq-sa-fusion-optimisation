@@ -1,5 +1,4 @@
 import pandas as pd
-import json
 import os
 import re
 from dataclasses import dataclass, asdict
@@ -10,7 +9,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
 import networkx as nx
-from functools import reduce
 from matplotlib.lines import Line2D
 from pylab import figure
 from shapely.geometry import LineString
@@ -49,21 +47,16 @@ from bokeh.models import (
     MultiLine,
     Circle,
     Whisker,
-    Plot,
     TapTool,
     NodesAndLinkedEdges,
     BoxSelectTool,
     LabelSet,
     ResetTool,
-    EdgesAndLinkedNodes,
-    NodesAndAdjacentNodes,
-    Legend,
-    LegendItem,
 )
 from bokeh.io import export_svgs
 import numpy as np
 from itertools import combinations
-from scipy.optimize import minimize
+import warnings
 
 
 class UncertaintyData:
@@ -186,6 +179,10 @@ class UncertaintyData:
             "dhecoil": "dhecoil",
             "rmajor": "major radius (m)",
             "tmargtf": "Temperature margin TF coil",
+            "dene": "dene",
+            "ohcth": "ohcth",
+            "beta": "beta",
+            "betalim": "betalim",
         }
 
     def estimate_design_values(self, variables):
@@ -840,7 +837,8 @@ class Copula:
         self.sampled_input_data = self.input_data[self.variable_names].sample(
             n=input_sample_size, random_state=1
         )
-        print(self.sampled_input_data)
+        unique_array = unique_cols(self.sampled_input_data)
+        self.sampled_input_data = self.sampled_input_data.loc[:, ~unique_array]
         self.copula.fit(self.sampled_input_data)
         # Sample from the copula to create synthetic data.
         self.synthetic_data = self.copula.sample(synthetic_sample_size)
@@ -997,7 +995,7 @@ class ConfidenceAnalysis:
         self,
         uq_data,
         input_names,
-        num_intervals=3,
+        num_intervals=2,
         weight_confidence=1.0,
         weight_overlap=0.5,
         custom_data_point=None,
@@ -1460,13 +1458,13 @@ class ConfidenceAnalysis:
     def _calculate_joint_confidence(self, data):
         """Calculate the confidence of the original design space, then the confidence of the optimised space."""
         data["joint_input_probability"] = data.loc[
-            self.uq_data.significant_conv_vars, "confidence_sum"
+            self.uq_data.input_names, "confidence_sum"
         ].sum() / (
-            len(data) * (self.num_intervals)
+            len(self.uq_data.input_names) * (self.num_intervals)
         )  # - 1))
         data["joint_max_confidence"] = data.loc[
-            self.uq_data.significant_conv_vars, "max_confidence"
-        ].sum() / (len(data))
+            self.uq_data.input_names, "max_confidence"
+        ].sum() / (len(self.uq_data.input_names))
 
     def _calculate_confidence(
         self, interval_probability, num_converged, interval_sample_counts
@@ -1490,10 +1488,14 @@ class ConfidenceAnalysis:
         converged_interval_count = interval_probability * num_converged
         delta_converged_interval_count = np.sqrt(converged_interval_count)
         delta_interval_sample_counts = np.sqrt(interval_sample_counts)
-        delta_c_over_c = np.sqrt(
-            (delta_converged_interval_count / converged_interval_count) ** 2
-            + (delta_interval_sample_counts / interval_sample_counts) ** 2
-        )
+        # Suppress this for now, find a solution later :~)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            # Your division operation here
+            delta_c_over_c = np.sqrt(
+                (delta_converged_interval_count / converged_interval_count) ** 2
+                + (delta_interval_sample_counts / interval_sample_counts) ** 2
+            )
         delta_confidence = interval_confidence * delta_c_over_c
 
         for i in range(len(interval_confidence - 1)):
@@ -1728,11 +1730,11 @@ class ConfidenceAnalysis:
                 title="Optimised UB",
                 formatter=general_formatter,
             ),
-            TableColumn(
-                field="joint_input_probability",
-                title="Design Confidence",
-                formatter=general_formatter,
-            ),
+            # TableColumn(
+            #     field="joint_input_probability",
+            #     title="Design Confidence",
+            #     formatter=general_formatter,
+            # ),
             TableColumn(
                 field="joint_max_confidence",
                 title="Optimised Confidence",
