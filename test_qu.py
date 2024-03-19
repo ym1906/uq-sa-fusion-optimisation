@@ -1,4 +1,5 @@
 import pandas as pd
+import json
 import os
 import re
 from dataclasses import dataclass, asdict
@@ -9,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
 import networkx as nx
+from functools import reduce
 from matplotlib.lines import Line2D
 from pylab import figure
 from shapely.geometry import LineString
@@ -46,17 +48,18 @@ from bokeh.models import (
     Range1d,
     MultiLine,
     Circle,
-    Whisker,
+    Plot,
     TapTool,
     NodesAndLinkedEdges,
     BoxSelectTool,
     LabelSet,
     ResetTool,
+    EdgesAndLinkedNodes,
+    NodesAndAdjacentNodes,
+    Legend,
+    LegendItem,
 )
 from bokeh.io import export_svgs
-import numpy as np
-from itertools import combinations
-import warnings
 
 
 class UncertaintyData:
@@ -64,26 +67,54 @@ class UncertaintyData:
     folder for the run data. The tool looks for hdf files containing uncertainty data, merges them, and has functions
     to clean, analyse, and plot the data."""
 
-    def __init__(
-        self,
-        path_to_uq_data_folder,
-        figure_of_merit,
-        input_parameters,
-        use_scoping_data=False,
-    ):
+    def __init__(self, path_to_uq_data_folder, figure_of_merit, use_scoping_data=False):
         self.path_in = path_to_uq_data_folder
         self.figure_of_merit = figure_of_merit
-
+        self.sample_vars_h5_path = "param_values.h5"
         # self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
         #     use_scoping_data
         # )
-        self.uncertainties_df = self.merge_hdf_files()
-
+        self.uncertainties_df = self.merge_hdf_files(use_scoping_data)
+        # self.uncertainties_df = self.uncertainties_df.drop(
+        #     columns=[
+        #         "procver",
+        #         "date",
+        #         "time",
+        #         "username",
+        #         "runtitle",
+        #         "tagno",
+        #         "branch_name",
+        #         "commsg",
+        #         "fileprefix",
+        #         "tauelaw",
+        #         # "radius_of_plasma-facing_side_of_inner_leg_should_be_[m]",
+        #         "error_id",
+        #     ]
+        # )
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
-        self.input_names = input_parameters
+
+        # self.uncertainties_df["pnetelin"] = self.sampled_vars_df["pnetelin"]
+        # self.uncertainties_df = self.uncertainties_df.head(100)
+        # self.input_names = self.sampled_vars_df.columns.tolist()
+        self.input_names = [
+            "coreradius",
+            "ralpne",
+            "psepbqarmax",
+            "tbrnmn",
+            "etaech",
+            "pinjalw",
+            "triang",
+            "alstroh",
+            "sig_tf_case_max",
+            "walalw",
+            "sig_tf_wp_max",
+            "aspect",
+        ]
+        if "pnetelin" in self.input_names:
+            self.input_names.remove("pnetelin")
         self.itv = [
             "bt",
             "te",
@@ -125,9 +156,10 @@ class UncertaintyData:
             "num_vars": self.number_sampled_vars,
             "names": self.input_names,
         }
-
+        # self.uncertainties_df.reset_index()
         # Drop the unnecessary levels from the columns
         self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
+        print(self.uncertainties_df)
         try:
             self.converged_df = self.uncertainties_df[
                 self.uncertainties_df["ifail"] == 1.0
@@ -144,9 +176,7 @@ class UncertaintyData:
                 columns=self.converged_df.columns,
                 index=self.converged_df.index,
             )
-        self.sampled_vars_to_plot = []
-        self.plot_names = []
-        self.number_sampled_vars = len(self.input_names)
+
         self.converged_sampled_vars_df = self.converged_df[self.input_names]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.input_names]
         self.unconverged_fom_df = self.uncertainties_df[self.figure_of_merit]
@@ -174,15 +204,6 @@ class UncertaintyData:
             "wallmw": "Neutron wall-load (MW/m$^{2}$)",
             "aspect": "Aspect ratio",
             "tbrnmn": "Minimum burn time (s)",
-            "tape_thickness": "Tape thickness ()",
-            "thicndut": "thicndut ()",
-            "dhecoil": "dhecoil",
-            "rmajor": "major radius (m)",
-            "tmargtf": "Temperature margin TF coil",
-            "dene": "dene",
-            "ohcth": "ohcth",
-            "beta": "beta",
-            "betalim": "betalim",
         }
 
     def estimate_design_values(self, variables):
@@ -483,7 +504,7 @@ class UncertaintyData:
         )
         plt.show()
 
-    def merge_hdf_files(self):
+    def merge_hdf_files(self, use_scoping_data):
         """Looks for uncertainty hdf files in the working folder and merges them into a
         single dataframe for analysis.
 
@@ -495,16 +516,30 @@ class UncertaintyData:
         for root, dirs, files in os.walk(self.path_in):
             for file in files:
                 pos_hdf = root + os.sep + file
-                if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
+                if (
+                    use_scoping_data == True
+                    and pos_hdf.endswith(".h5")
+                    and "scoping_data" in pos_hdf
+                ):
                     extra_uncertainties_df = pd.read_hdf(pos_hdf)
                     list_uncertainties_dfs.append(extra_uncertainties_df)
-        return pd.concat(list_uncertainties_dfs)
+                elif (
+                    use_scoping_data == False
+                    and pos_hdf.endswith(".h5")
+                    and "uncertainties_data" in pos_hdf
+                ):
+                    extra_uncertainties_df = pd.read_hdf(pos_hdf)
+                    list_uncertainties_dfs.append(extra_uncertainties_df)
+                # if pos_hdf.endswith(".h5") and "param_values" in pos_hdf:
+                # extra_params_df = pd.read_hdf(pos_hdf)
+                # list_params_dfs.append(extra_params_df)
+        return pd.concat(list_uncertainties_dfs)  # , pd.concat(list_params_dfs)
 
     def create_scatter_plot(
         self,
         axes=None,
         df=None,
-        diagonal="density",
+        diagonal="hist",
         density_kwds=None,
         hist_kwds=None,
         marker="*",
@@ -556,10 +591,11 @@ class UncertaintyData:
                     # Take the text off inbetween diagonal plots.
                     if i < 4:
                         ax.get_xaxis().set_visible(False)
+
                 else:
                     common = (mask[a] & mask[b]).values
                     h = ax.hist2d(
-                        x=df[b][common], y=df[a][common], bins=10, cmap="magma"
+                        x=df[b][common], y=df[a][common], bins=3, cmap="magma"
                     )
                     if i > j:
                         plt.colorbar(h[3], ax=ax)
@@ -584,8 +620,7 @@ class UncertaintyData:
         """
 
         figsize = (30, 30)
-        figure()
-        plt.figure(figsize=figsize)
+        figure(figsize=figsize)
         axes = {}
         n = self.plot_converged_df.columns.size
         gs = mpl.gridspec.GridSpec(
@@ -677,7 +712,6 @@ class UncertaintyData:
             columns=rsa_result["names"],
             index=rsa_result["quants"][1 : 1 + bins],
         )
-
         # Plot the results
         fig, ax = plt.subplots()
         # Find the max RSA index, discard variables which are never above confidence level
@@ -837,8 +871,6 @@ class Copula:
         self.sampled_input_data = self.input_data[self.variable_names].sample(
             n=input_sample_size, random_state=1
         )
-        unique_array = unique_cols(self.sampled_input_data)
-        self.sampled_input_data = self.sampled_input_data.loc[:, ~unique_array]
         self.copula.fit(self.sampled_input_data)
         # Sample from the copula to create synthetic data.
         self.synthetic_data = self.copula.sample(synthetic_sample_size)
@@ -926,14 +958,13 @@ class Copula:
 
         compare_3d(input_data_3d, synthetic_data_3d)
 
-    def create_converged_data(self, variable=None, synthetic_data=None):
-        synthetic_data = (
-            synthetic_data if synthetic_data is not None else self.synthetic_data
-        )
+    def create_pdf_df(self, variable=None, synthetic_data=None):
+        synthetic_data = synthetic_data or self.synthetic_data
         if variable == None:
             variable = synthetic_data.columns.values
         var_df = synthetic_data[variable]
-
+        # pdf_df = var_df.assign(pdf=self.pdf)
+        # print("function\n", pdf_df)
         return var_df
 
     def create_cdf_df(self, variable=None, synthetic_data=None):
@@ -952,13 +983,13 @@ class Copula:
         :param synthetic_data: _description_, defaults to None
         :type synthetic_data: _type_, optional
         """
-        converged_data = self.create_converged_data(variable, synthetic_data)
-        converged_data.sort_values(variable).set_index(variable).plot(kind="area")
+        pdf_df = self.create_pdf_df(variable, synthetic_data)
+        pdf_df.sort_values(variable).set_index(variable).plot(kind="area")
 
     def find_max_pdf(self, variable=None, synthetic_data=None, print_data=False):
         """Find the maximum pdf value and its corresponding data value."""
-        converged_data = self.create_converged_data(variable, synthetic_data)
-        max_pdf = converged_data.loc[converged_data["pdf"].idxmax()]
+        pdf_df = self.create_pdf_df(variable, synthetic_data)
+        max_pdf = pdf_df.loc[pdf_df["pdf"].idxmax()]
         if print_data == True:
             print(max_pdf)
         return max_pdf
@@ -988,20 +1019,12 @@ class Copula:
         ax1.legend(fontsize=12, borderpad=0.01, ncol=1)
 
 
-class ConfidenceAnalysis:
+class CopulaAnalysis:
     """A tool for plotting UQ and Copula data for analysis."""
 
-    def __init__(
-        self,
-        uq_data,
-        input_names,
-        num_intervals=2,
-        weight_confidence=1.0,
-        weight_overlap=0.5,
-        custom_data_point=None,
-    ):
+    def __init__(self, uq_data, copula, num_intervals=10, custom_data_point=None):
         """
-        Initialize the ConfidenceAnalysis instance.
+        Initialize the CopulaAnalysis instance.
 
         Parameters:
         - uq_data: UQ data for analysis.
@@ -1013,113 +1036,45 @@ class ConfidenceAnalysis:
         # 1. Parameter Validation
         if not isinstance(uq_data, UncertaintyData):
             raise ValueError("uq_data must be of type UQDataType.")
-        # if not isinstance(copula, Copula):
-        #     raise ValueError("copula must be an instance of CopulaType.")
+        if not isinstance(copula, Copula):
+            raise ValueError("copula must be an instance of CopulaType.")
 
         # 2. Attribute Initialization
         self.num_intervals = num_intervals
-        self.weight_confidence = weight_confidence
-        self.weight_overlap = weight_overlap
+        self.copula = copula
         self.uq_data = uq_data
-        self.input_names = input_names
         self.plot_list = []  # list of plots.
         self.variable_data = {}  # list of variable data classes.
-        self.plot_height_width = 275  # height and width of plots.
-        self.design_values_df = uq_data.estimate_design_values(self.input_names)
-        # Here you could switch between real and synthetic data. In general, use the real data
-        # but synthetic may be useful if convergence is low.
-        self.converged_data = (
-            self.uq_data.converged_df
-        )  # self.uq_data.converged_df  # self.copula.synthetic_data  #
+        self.plot_height_width = 350  # height and width of plots.
+        self.design_values_df = uq_data.estimate_design_values(copula.input_names)
+        self.pdf_df = self.copula.create_pdf_df(self.copula.input_names)
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
 
         # 3. Calculate interval probabilities for each variable
-        for var in self.input_names:
-            best_metric = float("-inf")
-            best_config = None
-            for num_intervals in range(
-                # Square root of number of samples is a general method to estimate the max number of intervals.
-                1,
-                round(np.sqrt(len(self.uq_data.converged_df))),
-            ):
-                # I arrived at these values after playing around a bit, more careful examination needed.
-                # I think it would be better to check if I can now eliminate the "ghost" interval at the end.
-                variable_data = self.calculate_variable_probabilities(
-                    variable=var, num_intervals=num_intervals
-                )
+        for var in self.copula.input_names:
+            self.calculate_variable_probabilities(var)
 
-                # Perform grid search with different configurations
-                confidences_grid = variable_data.interval_confidence.values
-                errors_grid = variable_data.interval_confidence_uncertainty.values
-
-                # Calculate the metric for the current configuration
-                current_metric = self.calculate_metric(
-                    confidences_grid,
-                    errors_grid,
-                    self.weight_confidence,
-                    self.weight_overlap,
-                )
-                # print(var, current_metric)
-                # Update best configuration if the metric is improved
-                if current_metric > best_metric:
-                    best_metric = current_metric
-                    best_config = (confidences_grid, errors_grid)
-            # print(var)
-            # print("Best Configuration:")
-            # print("Confidences:", best_config[0])
-            # print("Errors:", best_config[1])
-            # print("Best Metric:", best_metric)
-            self.calculate_variable_probabilities(var, len(best_config[0]))
         # 4. Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
 
-    # Define a function to calculate the metric
-    def calculate_metric(self, confidences, errors, weight_confidence, weight_overlap):
-        metric = sum(
-            weight_confidence * confidences
-            - weight_overlap * self.overlap(confidences, errors)
-        )
-        return metric
-
-    # Define a function to calculate the overlap between intervals
-    def overlap(self, confidences, errors):
-        overlaps = []
-        for pair in combinations(range(len(confidences)), 2):
-            i, j = pair
-            overlap_area = max(
-                0,
-                min(confidences[i] + errors[i], confidences[j] + errors[j])
-                - max(confidences[i] - errors[i], confidences[j] - errors[j]),
-            )
-            union_area = min(
-                confidences[i] + errors[i], confidences[j] + errors[j]
-            ) - max(confidences[i] - errors[i], confidences[j] - errors[j])
-            overlaps.append(overlap_area / union_area)
-            overlaps.append(
-                overlap_area / union_area if union_area != 0 else 0
-            )  # Handle division by zero
-
-        # Debugging output
-        # print(f"Overlap Area: {overlap_area}, Union Area: {union_area}")
-        # print(f"Confidences: {confidences}")
-        # print(f"Errors: {errors}")
-        # print(f"Overlap Area: {overlap_area}")
-        # print(f"Union Area: {union_area}")
-        return sum(overlaps)
-
-    def _sort_converged_data_by_variable(self, variable: str):
-        self.converged_data.sort_values(variable, inplace=True)
+    def _sort_pdf_df_by_variable(self, variable: str):
+        self.pdf_df.sort_values(variable, inplace=True)
 
     def _get_design_range_and_value(self, variable: str):
         """Look for the minimum/maximum of the design range or the synthetic range.
         Sometimes synthetic can extend beyond the real data. This data is used to create
         grid plots later."""
-        # need to rework this slightly for using synthetic data separately todo.
         if variable in self.uq_data.input_names:
             design_range_start, design_range_end, design_value = (
-                self.uq_data.uncertainties_df[variable].min(),
-                self.uq_data.uncertainties_df[variable].max(),
+                min(
+                    self.uq_data.uncertainties_df[variable].min(),
+                    self.copula.synthetic_data[variable].min(),
+                ),
+                max(
+                    self.uq_data.uncertainties_df[variable].max(),
+                    self.copula.synthetic_data[variable].max(),
+                ),
                 self.uq_data.uncertainties_df[variable].mean(),
             )
         else:
@@ -1154,18 +1109,16 @@ class ConfidenceAnalysis:
         :rtype: _type_
         """
         converged_intervals = (
-            self.converged_data.groupby(variable + "_interval")[variable].count()
-            / len(self.converged_data)
+            self.pdf_df.groupby(variable + "_interval")[variable].count()
+            / len(self.copula.synthetic_data)
         ) * (1.0 - self.uq_data.failure_probability)
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
-
-        interval_probability.iloc[converged_intervals.index.values.astype(int)] = (
-            converged_intervals.values
-        )
+        interval_probability.iloc[
+            converged_intervals.index.values.astype(int)
+        ] = converged_intervals.values
         # interval_probability /= interval_probability.sum()
-
         return interval_probability
 
     def find_description(self, variable_name, trim_after_char=80):
@@ -1221,13 +1174,13 @@ class ConfidenceAnalysis:
                 break
         return included_index
 
-    def calculate_variable_probabilities(self, variable: str, num_intervals: int):
+    def calculate_variable_probabilities(self, variable: str):
         """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
         The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
         This value is normalised, which gives the probability that a converged point has come from this interval.
         """
-        # Sort the converged_data by the variable
-        self._sort_converged_data_by_variable(variable)
+        # Sort the pdf_df by the variable
+        self._sort_pdf_df_by_variable(variable)
         (
             design_range_start,
             design_range_end,
@@ -1238,22 +1191,14 @@ class ConfidenceAnalysis:
         design_range_intervals = np.linspace(
             design_range_start,
             design_range_end,
-            num_intervals,
-            endpoint=False,
+            self.num_intervals,
         )
-        design_range_bins = np.append(design_range_intervals, design_range_end)
-
-        # converged_data is just a list of synthetic data, converged_data probably isn't a good name for this going forward
-        if num_intervals == 1:
-            self._add_interval_column(
-                self.converged_data, variable, [design_range_start, design_range_end]
-            )
-        elif num_intervals > 1:
-            self._add_interval_column(self.converged_data, variable, design_range_bins)
+        # pdf_df is just a list of synthetic data, pdf_df probably isn't a good name for this going forward
+        self._add_interval_column(self.pdf_df, variable, design_range_intervals)
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
-        self.converged_data["pdf"] = interval_probability
+        self.pdf_df["pdf"] = interval_probability
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = interval_probability
         # Map values to intervals
@@ -1261,67 +1206,52 @@ class ConfidenceAnalysis:
         int_uncertainties_df = pd.DataFrame()
         int_uncertainties_df["intervals"] = pd.cut(
             self.uq_data.uncertainties_df[variable],
-            bins=design_range_bins,
+            bins=design_range_intervals,
             right=False,
         )
-        # This is the number sampled, (includes unconverged samples)
         int_converged_df = pd.DataFrame()
         int_converged_df["intervals"] = pd.cut(
             self.uq_data.converged_df[variable],
-            bins=design_range_bins,
+            bins=design_range_intervals,
             right=False,
         )
 
-        # Count the frequency of values in each interval (converged+unconverged)
+        # Count the frequency of values in each interval
         interval_counts = (
-            int_uncertainties_df["intervals"].value_counts().sort_index()
-        ).tolist()
+            (int_uncertainties_df["intervals"].value_counts().sort_index()).tolist()
+        ) + [1]
         conv_interval_counts = (
-            int_converged_df["intervals"].value_counts().sort_index()
-        ).tolist()
+            (int_converged_df["intervals"].value_counts().sort_index()).tolist()
+        ) + [1]
         # Display the results
 
         interval_probability = pd.Series(
-            0.0, index=pd.RangeIndex(len(design_range_bins))
+            0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
-        interval_probability.iloc[converged_intervals.index.values.astype(int)] = (
-            converged_intervals.values
-        )
-        # This is the probability that, of converged samples, it will be found in a given interval.
+        interval_probability.iloc[
+            converged_intervals.index.values.astype(int)
+        ] = converged_intervals.values
         interval_probability = interval_probability / interval_probability.sum()
-        interval_probability = interval_probability[:-1]
-        # Interval width. (The width of intervals in parameter space)#
-        if num_intervals == 1:
-            interval_width = design_range_end - design_range_start
-            design_value_index = 0
-            # Interval counts is total sampled intervals (converged+unconverged).
-            # Interval probability is
-            interval_confidence, interval_con_unc = self._calculate_confidence(
-                interval_probability,
-                self.uq_data.number_of_converged_runs,
-                interval_counts,
-            )
-            design_value_probability = interval_confidence
-        elif num_intervals > 1:
-            interval_width = design_range_intervals[1] - design_range_intervals[0]
-            design_value_index = np.digitize(design_value, design_range_intervals) - 1
-            interval_confidence, interval_con_unc = self._calculate_confidence(
-                interval_probability,
-                self.uq_data.number_of_converged_runs,
-                interval_counts,
-            )
-            design_value_probability = interval_confidence[design_value_index]
-        # Interval counts is total sampled intervals (converged+unconverged).
-        # Interval probability is
 
+        # Interval width. (The width of intervals in parameter space)
+        interval_width = design_range_intervals[1] - design_range_intervals[0]
+        interval_confidence = self._calculate_confidence(
+            interval_probability, self.uq_data.number_of_converged_runs, interval_counts
+        )
         # Store the results for plotting in dataframe
         # Get the input values
-
-        # design_value_probability = interval_confidence[design_value_index]
+        design_value_index = np.digitize(design_value, design_range_intervals)
+        design_value_probability = interval_confidence[design_value_index]
         # Get the maximum pdf value
         max_confidence = interval_confidence.max()
         max_confidence_index = interval_confidence.argmax()
         max_confidence_design_interval = design_range_intervals[max_confidence_index]
+        # Delete this function if not required
+        x = self.sum_intervals_to_probability(
+            interval_endpoints=design_range_intervals,
+            interval_probabilities=interval_confidence,
+            desired_probability=0.9,
+        )
         # Check if a custom_data_point is provided
         if self.custom_data_point is not None:
             if variable in self.custom_data_point.keys():
@@ -1352,13 +1282,10 @@ class ConfidenceAnalysis:
             design_range_intervals=design_range_intervals,
             interval_probability=interval_probability,
             interval_confidence=interval_confidence,
-            interval_confidence_uncertainty=interval_con_unc,
             confidence_sum=sum(interval_confidence),
             interval_sample_counts=interval_counts,
             max_confidence_value=max_confidence_design_interval
             + (0.5 * interval_width),
-            max_confidence_lb=max_confidence_design_interval,
-            max_confidence_ub=max_confidence_design_interval + interval_width,
             max_confidence=max_confidence,
             design_value_probability=design_value_probability,
             design_value_index=design_value_index,
@@ -1370,8 +1297,6 @@ class ConfidenceAnalysis:
         )
 
         self.variable_data[variable] = variable_data
-
-        return variable_data
 
     def modify_data(self, variable_data):
         """Convert variable data into a format for plotting graphs and tables.
@@ -1388,10 +1313,10 @@ class ConfidenceAnalysis:
 
         # Filter dataframes based on design and max probability values
         design_filtered_df = self._filter_dataframe_by_index(
-            self.converged_data, data, "design_value_index", self.input_names
+            self.pdf_df, data, "design_value_index", self.copula.input_names
         )
         max_confidence_filtered_df = self._filter_dataframe_by_index(
-            self.converged_data, data, "max_confidence_index", self.input_names
+            self.pdf_df, data, "max_confidence_index", self.copula.input_names
         )
 
         def modify_row(row):
@@ -1418,7 +1343,7 @@ class ConfidenceAnalysis:
             # design or optimised probability (probability will be greater the fewer points
             # provided)
             custom_filtered_df = self._filter_dataframe_by_index(
-                self.converged_data,
+                self.pdf_df,
                 data,
                 "custom_data_point_index",
                 self.custom_data_point.keys(),
@@ -1458,13 +1383,11 @@ class ConfidenceAnalysis:
     def _calculate_joint_confidence(self, data):
         """Calculate the confidence of the original design space, then the confidence of the optimised space."""
         data["joint_input_probability"] = data.loc[
-            self.uq_data.input_names, "confidence_sum"
-        ].sum() / (
-            len(self.uq_data.input_names) * (self.num_intervals)
-        )  # - 1))
+            self.uq_data.significant_conv_vars, "confidence_sum"
+        ].sum() / (len(data) * (self.num_intervals - 1))
         data["joint_max_confidence"] = data.loc[
-            self.uq_data.input_names, "max_confidence"
-        ].sum() / (len(self.uq_data.input_names))
+            self.uq_data.significant_conv_vars, "max_confidence"
+        ].sum() / (len(data))
 
     def _calculate_confidence(
         self, interval_probability, num_converged, interval_sample_counts
@@ -1485,25 +1408,21 @@ class ConfidenceAnalysis:
         interval_confidence = (interval_probability * num_converged) / (
             interval_sample_counts
         )
-        converged_interval_count = interval_probability * num_converged
-        delta_converged_interval_count = np.sqrt(converged_interval_count)
-        delta_interval_sample_counts = np.sqrt(interval_sample_counts)
-        # Suppress this for now, find a solution later :~)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            # Your division operation here
-            delta_c_over_c = np.sqrt(
-                (delta_converged_interval_count / converged_interval_count) ** 2
-                + (delta_interval_sample_counts / interval_sample_counts) ** 2
-            )
-        delta_confidence = interval_confidence * delta_c_over_c
+        A = interval_probability * num_converged
+        B = interval_sample_counts
+        Delta_A = np.sqrt(A)
+        Delta_B = np.sqrt(B)
+        C = A / B
+        Delta_C_over_C = np.sqrt((Delta_A / A) ** 2 + (Delta_B / B) ** 2)
+        Delta_C = C * Delta_C_over_C
 
-        for i in range(len(interval_confidence - 1)):
+        for i in range(len(interval_confidence)):
             if interval_confidence[i] == float("inf") or interval_confidence[
                 i
             ] == float("-inf"):
                 interval_confidence[i] = 0.0
-        return interval_confidence, delta_confidence
+
+        return interval_confidence
 
     def _filter_dataframe_by_index(
         self, dataframe, variabledata, index_column, columns_to_filter
@@ -1550,8 +1469,6 @@ class ConfidenceAnalysis:
             line_dash="dashed",
             name="Design Point Value",
         )
-
-        #
         # design_value_probability_box = BoxAnnotation(
         #     left=uncertain_variable_data.design_range_start,
         #     right=uncertain_variable_data.design_value,
@@ -1620,32 +1537,11 @@ class ConfidenceAnalysis:
             top=uncertain_variable_data.interval_confidence,
             width=uncertain_variable_data.interval_width,
             fill_color="cornflowerblue",
-            alpha=0.5,
         )
-
-        errsource = ColumnDataSource(
-            data=dict(
-                base=uncertain_variable_data.design_range_intervals
-                + 0.5 * uncertain_variable_data.interval_width,
-                lower=uncertain_variable_data.interval_confidence
-                + uncertain_variable_data.interval_confidence_uncertainty,
-                upper=uncertain_variable_data.interval_confidence
-                - uncertain_variable_data.interval_confidence_uncertainty,
-            )
-        )
-
-        whisker = Whisker(
-            source=errsource,
-            base="base",
-            upper="upper",
-            lower="lower",
-        )
-
         p.add_layout(design_value_box)
         # p.add_layout(design_value_probability_box)
         p.add_layout(max_var_box)
         # p.add_layout(max_confidence_box)
-        p.add_layout(whisker)
         p.add_tools(
             HoverTool(
                 tooltips=[
@@ -1721,20 +1617,15 @@ class ConfidenceAnalysis:
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="max_confidence_lb",
-                title="Optimised LB",
+                field="interval_width",
+                title="Interval Width",
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="max_confidence_ub",
-                title="Optimised UB",
+                field="joint_input_probability",
+                title="Design Confidence",
                 formatter=general_formatter,
             ),
-            # TableColumn(
-            #     field="joint_input_probability",
-            #     title="Design Confidence",
-            #     formatter=general_formatter,
-            # ),
             TableColumn(
                 field="joint_max_confidence",
                 title="Optimised Confidence",
@@ -1769,6 +1660,7 @@ class ConfidenceAnalysis:
         plotting_data = self.plotting_data
         plotting_data = plotting_data.map(format_number)
         source = ColumnDataSource(plotting_data)
+
         data_table = DataTable(
             source=source,
             columns=columns,
@@ -1841,22 +1733,22 @@ class ConfidenceAnalysis:
         G = nx.relabel_nodes(networkx, mapping)
         graph_renderer = from_networkx(G, nx.spring_layout, k=0.9, center=(0, 0))
         graph_renderer.node_renderer.data_source.data["index"] = list(range(len(G)))
-        graph_renderer.node_renderer.data_source.data["name"] = (
-            variable_data.index.tolist()
-        )
+        graph_renderer.node_renderer.data_source.data[
+            "name"
+        ] = variable_data.index.tolist()
 
         graph_renderer.node_renderer.data_source.data["description"] = variable_data[
             "description"
         ]
-        graph_renderer.node_renderer.data_source.data["design_range_start"] = (
-            variable_data["design_range_start"]
-        )
-        graph_renderer.node_renderer.data_source.data["design_range_end"] = (
-            variable_data["design_range_end"]
-        )
-        graph_renderer.node_renderer.data_source.data["max_confidence_value"] = (
-            variable_data["max_confidence_value"]
-        )
+        graph_renderer.node_renderer.data_source.data[
+            "design_range_start"
+        ] = variable_data["design_range_start"]
+        graph_renderer.node_renderer.data_source.data[
+            "design_range_end"
+        ] = variable_data["design_range_end"]
+        graph_renderer.node_renderer.data_source.data[
+            "max_confidence_value"
+        ] = variable_data["max_confidence_value"]
 
         graph_renderer.node_renderer.data_source.data["node_color"] = [
             PuBuGn5[3] if n in self.uq_data.itv else PuBuGn5[2]
@@ -1979,12 +1871,9 @@ class uncertain_variable_data:
     design_range_intervals: np.array
     interval_probability: np.array
     interval_confidence: pd.DataFrame
-    interval_confidence_uncertainty: pd.DataFrame
     confidence_sum: float
     interval_sample_counts: list
     max_confidence_value: float
-    max_confidence_lb: float
-    max_confidence_ub: float
     max_confidence: float
     design_value_probability: float
     design_value_index: int
