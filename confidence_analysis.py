@@ -99,8 +99,8 @@ class ConfidenceAnalysis:
                 )
 
                 # Perform grid search with different configurations
-                confidences_grid = variable_data.interval_confidence.values
-                errors_grid = variable_data.interval_confidence_uncertainty.values
+                confidences_grid = variable_data.interval_confidence
+                errors_grid = variable_data.interval_confidence_uncertainty
 
                 # Calculate the metric for the current configuration
                 current_metric = self.calculate_metric(
@@ -202,10 +202,13 @@ class ConfidenceAnalysis:
         :return: _description_
         :rtype: _type_
         """
+        # Probability is being calculated as number of converged sampples/number of uncertain points.
         converged_intervals = (
             self.converged_data.groupby(variable + "_interval")[variable].count()
-            / len(self.converged_data)
-        ) * (1.0 - self.uq_data.failure_probability)
+            / len(self.uq_data.uncertainties_df)
+            # * (1.0 - self.uq_data.failure_probability)
+            # Above line modifies the probability to account for the fact that we are looking at converged samples.
+        )
         interval_probability = pd.Series(
             0.0, index=pd.RangeIndex(len(design_range_intervals))
         )
@@ -292,7 +295,6 @@ class ConfidenceAnalysis:
         )
         design_range_bins = np.append(design_range_intervals, design_range_end)
 
-        # converged_data is just a list of synthetic data, converged_data probably isn't a good name for this going forward
         if num_intervals == 1:
             self._add_interval_column(
                 self.converged_data, variable, [design_range_start, design_range_end]
@@ -302,6 +304,7 @@ class ConfidenceAnalysis:
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
+
         self.converged_data["pdf"] = interval_probability
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = interval_probability
@@ -346,8 +349,7 @@ class ConfidenceAnalysis:
             # Interval counts is total sampled intervals (converged+unconverged).
             # Interval probability is
             interval_confidence, interval_con_unc = self._calculate_confidence(
-                interval_probability,
-                self.uq_data.number_of_converged_runs,
+                conv_interval_counts,
                 interval_counts,
             )
             design_value_probability = interval_confidence
@@ -355,11 +357,11 @@ class ConfidenceAnalysis:
             interval_width = design_range_intervals[1] - design_range_intervals[0]
             design_value_index = np.digitize(design_value, design_range_intervals) - 1
             interval_confidence, interval_con_unc = self._calculate_confidence(
-                interval_probability,
-                self.uq_data.number_of_converged_runs,
+                conv_interval_counts,
                 interval_counts,
             )
             design_value_probability = interval_confidence[design_value_index]
+
         # Interval counts is total sampled intervals (converged+unconverged).
         # Interval probability is
 
@@ -374,8 +376,11 @@ class ConfidenceAnalysis:
         # Check if a custom_data_point is provided
         if self.custom_data_point is not None:
             if variable in self.custom_data_point.keys():
-                custom_data_point_index = np.digitize(
-                    self.custom_data_point[variable], design_range_intervals
+                custom_data_point_index = (
+                    np.digitize(
+                        self.custom_data_point[variable], design_range_intervals
+                    )
+                    - 1
                 )
                 custom_data_point_probability = interval_confidence[
                     custom_data_point_index
@@ -399,6 +404,7 @@ class ConfidenceAnalysis:
             design_range_end=design_range_end,
             design_value=design_value,
             design_range_intervals=design_range_intervals,
+            number_of_intervals=len(design_range_intervals),
             interval_probability=interval_probability,
             interval_confidence=interval_confidence,
             interval_confidence_uncertainty=interval_con_unc,
@@ -506,18 +512,23 @@ class ConfidenceAnalysis:
 
     def _calculate_joint_confidence(self, data):
         """Calculate the confidence of the original design space, then the confidence of the optimised space."""
-        data["joint_input_probability"] = data.loc[
-            self.uq_data.input_names, "confidence_sum"
-        ].sum() / (
-            len(self.uq_data.input_names) * (self.num_intervals)
-        )  # - 1))
+        # Joint input probability is the confidence of your original bounds.
+        # The confidence of each interval is summed, and divided by the number of intervals. This is averaged for the
+        # number of uncertain params you have.
+        data["joint_input_probability"] = sum(
+            data.loc[self.uq_data.input_names, "confidence_sum"]
+            / (
+                len(self.input_names)
+                * (data.loc[self.uq_data.input_names, "number_of_intervals"])
+            )
+        )
+        # This is the joint maximum confidence. The confidence if you selected the intervals
+        # with the highest confidence.
         data["joint_max_confidence"] = data.loc[
             self.uq_data.input_names, "max_confidence"
         ].sum() / (len(self.uq_data.input_names))
 
-    def _calculate_confidence(
-        self, interval_probability, num_converged, interval_sample_counts
-    ):
+    def _calculate_confidence(self, conv_interval_count, interval_sample_counts):
         """Calculate the confidence that an interval will converge. This is defined as
         the ratio of the number of convergent points to sampled points. Currently using
         the generated pdf to estimate convergent points.
@@ -531,18 +542,18 @@ class ConfidenceAnalysis:
         :return: interval confidence
         :rtype: list
         """
-        interval_confidence = (interval_probability * num_converged) / (
-            interval_sample_counts
+        # Interval probability is probability of converged samples being in an interval (as a proportion of converged samples)
+        interval_confidence = (np.array(conv_interval_count)) / (
+            np.array(interval_sample_counts)
         )
-        converged_interval_count = interval_probability * num_converged
-        delta_converged_interval_count = np.sqrt(converged_interval_count)
+        delta_conv_interval_count = np.sqrt(conv_interval_count)
         delta_interval_sample_counts = np.sqrt(interval_sample_counts)
         # Suppress this for now, find a solution later :~)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             # Your division operation here
             delta_c_over_c = np.sqrt(
-                (delta_converged_interval_count / converged_interval_count) ** 2
+                (delta_conv_interval_count / conv_interval_count) ** 2
                 + (delta_interval_sample_counts / interval_sample_counts) ** 2
             )
         delta_confidence = interval_confidence * delta_c_over_c
@@ -661,7 +672,7 @@ class ConfidenceAnalysis:
         )
 
         p.xaxis.axis_label = uncertain_variable_name
-        p.yaxis.axis_label = "Normalised Probability"
+        p.yaxis.axis_label = "Confidence"
         p.add_glyph(sample_space)
         vert_bar_plot = p.vbar(
             x=uncertain_variable_data.design_range_intervals
@@ -779,16 +790,22 @@ class ConfidenceAnalysis:
                 title="Optimised UB",
                 formatter=general_formatter,
             ),
-            # TableColumn(
-            #     field="joint_input_probability",
-            #     title="Design Confidence",
-            #     formatter=general_formatter,
-            # ),
+            TableColumn(
+                field="interval_width",
+                title="Interval Width",
+                formatter=general_formatter,
+            ),
+            TableColumn(
+                field="joint_input_probability",
+                title="Design Confidence",
+                formatter=general_formatter,
+            ),
             TableColumn(
                 field="joint_max_confidence",
                 title="Optimised Confidence",
                 formatter=general_formatter,
             ),
+            # This prediction isn't very good, so I will comment it out for now.
         ]
         if self.custom_data_point is not None:
             columns.insert(

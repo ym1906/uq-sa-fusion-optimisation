@@ -742,7 +742,6 @@ class UncertaintyData:
 
         ax1.legend()
         ax1.grid(axis="both")
-        # plt.savefig("plots/" + figure_of_merit + "ecdf.svg", bbox_inches="tight")
 
 
 def unique_cols(df):
