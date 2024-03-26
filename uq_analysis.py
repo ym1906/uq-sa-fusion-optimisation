@@ -1312,6 +1312,7 @@ class ConfidenceAnalysis:
                 interval_counts,
             )
             design_value_probability = interval_confidence[design_value_index]
+
         # Interval counts is total sampled intervals (converged+unconverged).
         # Interval probability is
 
