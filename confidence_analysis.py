@@ -35,6 +35,7 @@ from bokeh.io import export_svgs
 import numpy as np
 from itertools import combinations
 import warnings
+from uncertainty_data import UncertaintyData
 
 
 class ConfidenceAnalysis:
@@ -158,7 +159,7 @@ class ConfidenceAnalysis:
         return sum(overlaps)
 
     def _sort_converged_data_by_variable(self, variable: str):
-        self.converged_data.sort_values(variable, inplace=True)
+        self.converged_data = self.converged_data.sort_values(variable)
 
     def _get_design_range_and_value(self, variable: str):
         """Look for the minimum/maximum of the design range or the synthetic range.
@@ -542,10 +543,17 @@ class ConfidenceAnalysis:
         :return: interval confidence
         :rtype: list
         """
-        # Interval probability is probability of converged samples being in an interval (as a proportion of converged samples)
-        interval_confidence = (np.array(conv_interval_count)) / (
-            np.array(interval_sample_counts)
-        )
+        # Convert input lists to numpy arrays
+        conv_interval_count = np.array(conv_interval_count)
+        interval_sample_counts = np.array(interval_sample_counts)
+
+        # Calculate interval confidence
+        with np.errstate(divide="ignore", invalid="ignore"):
+            interval_confidence = np.divide(conv_interval_count, interval_sample_counts)
+
+        # Handle cases where division by zero or NaN values occurred
+        interval_confidence[np.isnan(interval_confidence)] = 0  # Replace NaN with 0
+        interval_confidence[np.isinf(interval_confidence)] = 0  # Replace inf with 0
         delta_conv_interval_count = np.sqrt(conv_interval_count)
         delta_interval_sample_counts = np.sqrt(interval_sample_counts)
         # Suppress this for now, find a solution later :~)
@@ -1063,6 +1071,7 @@ class uncertain_variable_data:
     design_range_end: float
     design_value: float
     design_range_intervals: np.array
+    number_of_intervals: int
     interval_probability: np.array
     interval_confidence: pd.DataFrame
     interval_confidence_uncertainty: pd.DataFrame
