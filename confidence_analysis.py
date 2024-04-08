@@ -172,6 +172,11 @@ class ConfidenceAnalysis:
         return sum(overlaps)
 
     def _sort_converged_data_by_variable(self, variable: str):
+        """Sort the a dataframe by a given variable.
+
+        :param variable: Variable name.
+        :type variable: str
+        """
         self.converged_data = self.converged_data.sort_values(variable)
 
     def _get_design_range_and_value(self, variable: str):
@@ -264,32 +269,9 @@ class ConfidenceAnalysis:
 
         return trimmed_description
 
-    def sum_intervals_to_probability(
-        self, interval_endpoints, interval_probabilities, desired_probability
-    ):
-        # Convert pandas dataframe to numpy array
-        probabilities = pd.DataFrame(interval_probabilities)
-        sorted_probabilities = probabilities.sort_values(by=0, ascending=False)
-        # Initialize variables
-        cumulative_sum = 0
-        included_probabilities = []
-        included_index = []
-
-        # Iterate through the sorted DataFrame and add probabilities to the cumulative sum
-        for index, row in sorted_probabilities.iterrows():
-            probability = row[0]
-            included_index.append(included_index)
-            cumulative_sum += probability
-            included_probabilities.append(probability)
-            included_index.append(index)
-            # Check if the cumulative sum exceeds the desired probability
-            if cumulative_sum >= desired_probability:
-                break
-        return included_index
-
     def calculate_variable_probabilities(self, variable: str, num_intervals: int):
         """Use the Joint Probability Function to find the region in uncertain space with the highest rate of convergence.
-        The uncertain space is grouped into intervals. The probability density of each point  in the interval is summed.
+        The uncertain space is grouped into intervals. The probability density of each pointin the interval is summed.
         This value is normalised, which gives the probability that a converged point has come from this interval.
         """
         # Sort the converged_data by the variable
@@ -342,7 +324,7 @@ class ConfidenceAnalysis:
         interval_counts = (
             int_uncertainties_df["intervals"].value_counts().sort_index()
         ).tolist()
-        conv_interval_counts = (
+        converged_interval_counts = (
             int_converged_df["intervals"].value_counts().sort_index()
         ).tolist()
         # Display the results
@@ -363,7 +345,7 @@ class ConfidenceAnalysis:
             # Interval counts is total sampled intervals (converged+unconverged).
             # Interval probability is
             interval_confidence, interval_con_unc = self._calculate_confidence(
-                conv_interval_counts,
+                converged_interval_counts,
                 interval_counts,
             )
             design_value_probability = interval_confidence
@@ -371,7 +353,7 @@ class ConfidenceAnalysis:
             interval_width = design_range_intervals[1] - design_range_intervals[0]
             design_value_index = np.digitize(design_value, design_range_intervals) - 1
             interval_confidence, interval_con_unc = self._calculate_confidence(
-                conv_interval_counts,
+                converged_interval_counts,
                 interval_counts,
             )
             design_value_probability = interval_confidence[design_value_index]
@@ -542,10 +524,10 @@ class ConfidenceAnalysis:
             self.uq_data.input_names, "max_confidence"
         ].sum() / (len(self.uq_data.input_names))
 
-    def _calculate_confidence(self, conv_interval_count, interval_sample_counts):
-        """Calculate the confidence that an interval will converge. This is defined as
-        the ratio of the number of convergent points to sampled points. Currently using
-        the generated pdf to estimate convergent points.
+    def _calculate_confidence(self, converged_interval_count, interval_sample_counts):
+        """Calculate the confidence that an interval will converge.
+        This is defined as the ratio of the number of convergent points to sampled points.
+        Currently using the generated pdf to estimate convergent points.
 
         :param interval_probability: probability of a convergent point in the interval
         :type interval_probability: list
@@ -557,24 +539,26 @@ class ConfidenceAnalysis:
         :rtype: list
         """
         # Convert input lists to numpy arrays
-        conv_interval_count = np.array(conv_interval_count)
+        converged_interval_count = np.array(converged_interval_count)
         interval_sample_counts = np.array(interval_sample_counts)
 
         # Calculate interval confidence
         with np.errstate(divide="ignore", invalid="ignore"):
-            interval_confidence = np.divide(conv_interval_count, interval_sample_counts)
+            interval_confidence = np.divide(
+                converged_interval_count, interval_sample_counts
+            )
 
         # Handle cases where division by zero or NaN values occurred
         interval_confidence[np.isnan(interval_confidence)] = 0  # Replace NaN with 0
         interval_confidence[np.isinf(interval_confidence)] = 0  # Replace inf with 0
-        delta_conv_interval_count = np.sqrt(conv_interval_count)
+        delta_converged_interval_count = np.sqrt(converged_interval_count)
         delta_interval_sample_counts = np.sqrt(interval_sample_counts)
         # Suppress this for now, find a solution later :~)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             # Your division operation here
             delta_c_over_c = np.sqrt(
-                (delta_conv_interval_count / conv_interval_count) ** 2
+                (delta_converged_interval_count / converged_interval_count) ** 2
                 + (delta_interval_sample_counts / interval_sample_counts) ** 2
             )
         delta_confidence = interval_confidence * delta_c_over_c
@@ -596,10 +580,10 @@ class ConfidenceAnalysis:
 
     def _calculate_custom_joint_probability(self, data):
         """Calculate joint probability for custom data points."""
-        custom_significant_conv_data = data.loc[
-            self.uq_data.significant_conv_vars, "custom_data_point_probability"
+        custom_significant_converged_data = data.loc[
+            self.uq_data.significant_converged_vars, "custom_data_point_probability"
         ]
-        data["joint_custom_probability"] = custom_significant_conv_data.product()
+        data["joint_custom_probability"] = custom_significant_converged_data.product()
 
     def create_plot(self, uncertain_variable):
         """Create some plots to show how the probability of convergence is deconvolved into the uncertain space for each variable.
