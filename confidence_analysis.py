@@ -39,7 +39,11 @@ from uncertainty_data import UncertaintyData
 
 
 class ConfidenceAnalysis:
-    """A tool for plotting UQ and Copula data for analysis."""
+    """A tool for plotting UQ and Copula data for analysis. This class performs an interval
+    analysis. It can calcualte the `confidence` of each interval for each parameter
+    and plot this in a grid. Then you can also plot a data table to find the most confident
+    interval.
+    """
 
     def __init__(
         self,
@@ -63,8 +67,6 @@ class ConfidenceAnalysis:
         # 1. Parameter Validation
         if not isinstance(uq_data, UncertaintyData):
             raise ValueError("uq_data must be of type UQDataType.")
-        # if not isinstance(copula, Copula):
-        #     raise ValueError("copula must be an instance of CopulaType.")
 
         # 2. Attribute Initialization
         self.num_intervals = num_intervals
@@ -84,17 +86,17 @@ class ConfidenceAnalysis:
         self.custom_data_point = custom_data_point
         self.probability_df = pd.DataFrame()
 
+    def run(self):
+        """Calculate the confidence intervals, perform optimisation, and prepare the data for plotting."""
         # 3. Calculate interval probabilities for each variable
         for var in self.input_names:
             best_metric = float("-inf")
             best_config = None
+            # Square root of number of samples is a general method to estimate the max number of intervals.
             for num_intervals in range(
-                # Square root of number of samples is a general method to estimate the max number of intervals.
                 1,
                 round(np.sqrt(len(self.uq_data.converged_df))),
             ):
-                # I arrived at these values after playing around a bit, more careful examination needed.
-                # I think it would be better to check if I can now eliminate the "ghost" interval at the end.
                 variable_data = self.calculate_variable_probabilities(
                     variable=var, num_intervals=num_intervals
                 )
@@ -110,22 +112,30 @@ class ConfidenceAnalysis:
                     self.weight_confidence,
                     self.weight_overlap,
                 )
-                # print(var, current_metric)
+
                 # Update best configuration if the metric is improved
                 if current_metric > best_metric:
                     best_metric = current_metric
                     best_config = (confidences_grid, errors_grid)
-            # print(var)
-            # print("Best Configuration:")
-            # print("Confidences:", best_config[0])
-            # print("Errors:", best_config[1])
-            # print("Best Metric:", best_metric)
+
             self.calculate_variable_probabilities(var, len(best_config[0]))
         # 4. Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
 
-    # Define a function to calculate the metric
     def calculate_metric(self, confidences, errors, weight_confidence, weight_overlap):
+        """Calculate a metric to evaluate the number of intervals.
+
+        :param confidences: Confidence values for each intervals.
+        :type confidences: np.array
+        :param errors: Error values for the confidence of each array.
+        :type errors: np.array
+        :param weight_confidence: Weighting factor which favours the highest confidence.
+        :type weight_confidence: float
+        :param weight_overlap: Weighting factor which favours no error overlap.
+        :type weight_overlap: flaot
+        :return: The value of the metric.
+        :rtype: float
+        """
         metric = sum(
             weight_confidence * confidences
             - weight_overlap * self.overlap(confidences, errors)
@@ -134,6 +144,15 @@ class ConfidenceAnalysis:
 
     # Define a function to calculate the overlap between intervals
     def overlap(self, confidences, errors):
+        """Calculate the overlap between intervals (union of intervals)
+
+        :param confidences: Confidence of each interval.
+        :type confidences: np.array
+        :param errors: Errors on confidence of each interval.
+        :type errors: np.array
+        :return: Sum of overlaps between intervals.
+        :rtype: float
+        """
         overlaps = []
         for pair in combinations(range(len(confidences)), 2):
             i, j = pair
@@ -150,12 +169,6 @@ class ConfidenceAnalysis:
                 overlap_area / union_area if union_area != 0 else 0
             )  # Handle division by zero
 
-        # Debugging output
-        # print(f"Overlap Area: {overlap_area}, Union Area: {union_area}")
-        # print(f"Confidences: {confidences}")
-        # print(f"Errors: {errors}")
-        # print(f"Overlap Area: {overlap_area}")
-        # print(f"Union Area: {union_area}")
         return sum(overlaps)
 
     def _sort_converged_data_by_variable(self, variable: str):
