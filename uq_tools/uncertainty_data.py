@@ -292,7 +292,7 @@ class UncertaintyData:
         # plt.savefig("plots/sensitivity_fom.svg", bbox_inches="tight")
         plt.show()
 
-    def plot_sumsq_sensitivity(self):
+    def plot_sumsq_sensitivity(self, export_svg=False):
         """Find the input paramters influencing whether PROCESS converges."""
         fig, ax = plt.subplots(1)
         ax.tick_params(labelsize=16)
@@ -325,7 +325,8 @@ class UncertaintyData:
         ax.legend(fontsize=12, borderpad=0.01, ncol=1)
 
         plt.grid()
-        plt.savefig("rds_indices.svg", bbox_inches="tight")
+        if export_svg:
+            plt.savefig("rds_indices.svg", bbox_inches="tight")
         plt.show()
 
     def convergence_study(self, n, sampled_inputs, process_output):

@@ -1,3 +1,5 @@
+import os
+import inspect
 import pandas as pd
 import re
 from dataclasses import dataclass, asdict
@@ -10,7 +12,7 @@ from bokeh.palettes import (
     PuRd5,
     PuBuGn5,
 )
-import python_fortran_dicts
+import python_fortran_dicts as python_fortran_dicts
 from bokeh.plotting import figure, show, from_networkx
 from bokeh.layouts import gridplot
 from bokeh.models import (
@@ -251,6 +253,7 @@ class ConfidenceAnalysis:
         :return: description of variable
         :rtype: str
         """
+
         variable_dict = python_fortran_dicts.get_dicts()
         description = variable_dict["DICT_DESCRIPTIONS"].get(
             variable_name, "Description not found"
@@ -592,7 +595,7 @@ class ConfidenceAnalysis:
             custom_significant_converged_data.product()
         )
 
-    def create_plot(self, uncertain_variable):
+    def create_plot(self, uncertain_variable, export_svg=False):
         """Create some plots to show how the probability of convergence is deconvolved into the uncertain space for each variable.
         This function plots bar charts which show the probability of convergence for intervals in uncertain variable space.
         The red line plots the design point values. The green line finds the bar with the maximum probability (crude estimate).
@@ -713,13 +716,17 @@ class ConfidenceAnalysis:
         p.legend
         p.title.text_font = "helvetica"  # Set the font family
 
-        # Save the plot as svg
-        p.output_backend = "svg"
-        export_svgs(p, filename="plots/" + uncertain_variable_data.name + "_plot.svg")
+        if export_svg:
+            # Save the plot as SVG
+            filename = os.path.join(
+                os.path.dirname(__file__), f"{uncertain_variable}_plot.svg"
+            )
+            p.output_backend = "svg"
+            export_svgs(p, filename=filename)
 
         return p
 
-    def create_graph_grid(self, variables):
+    def create_graph_grid(self, variables, export_svg=False):
         """Create a grid of graphs which plot the probability
         intervals for each input variable.
 
@@ -729,7 +736,7 @@ class ConfidenceAnalysis:
         :rtype: bokeh.gridplot
         """
         for variable in variables:
-            p = self.create_plot(variable)
+            p = self.create_plot(variable, export_svg)
             input
             self.plot_list.append(p)
 
