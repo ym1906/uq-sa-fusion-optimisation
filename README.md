@@ -1,109 +1,122 @@
-# PROCESS_UQ
+# Read Me
 
-This repository contains some tools to perform UQ analysis on the output of Monte Carlo analysis with PROCESS.
+## Table of Contents
 
-PROCESS is a `Systems Code` which is used to design and optimise fusion power plants.
+1. [UncertaintyData Class Documentation](#uncertaintydata-class-documentation)
+   - [Key Components](#key-components)
+     - [Initialization](#initialization)
+     - [Data Handling](#data-handling)
+     - [Convergence Analysis](#convergence-analysis)
+     - [Sampled Variables and Figures of Merit](#sampled-variables-and-figures-of-merit)
+   - [Methods](#methods)
+   - [Additional Features](#additional-features)
+2. [ConfidenceAnalysis Class Documentation](#introduction)
+    - [Class Overview](#class-overview)
+    - [Methods](#methods)
+      - [Parameter Validation](#parameter-validation)
+      - [Attribute Initialization](#attribute-initialization)
+      - [Interval Probability Calculation](#interval-probability-calculation)
+      - [Optimization and Data Preparation](#optimization-and-data-preparation)
+      - [Additional Methods](#additional-methods)
+    - [Usage](#usage)
+    - [Examples](#examples)
 
-## Uncertainty Quantification Analysis
+## UncertaintyData Class Documentation
 
-This guide explains how to use the Uncertaintiy Quantification (UQ) analysis tool.
+The `UncertaintyData` class is designed for collecting and analyzing output data from an `evaluate_uncertainties.py` tool. It merges HDF files containing uncertainty data, cleans, analyzes, and plots the data. Below, we’ll explore the key components and methods of this class.
 
-## Motivation
+### Key Components
 
-When I started working on this tool I wanted to answer some questions:
+#### Initialization
 
-1. How can we evaluate the "reliability" of a power plant design?
-    1b. Is the design in a "densly populated" region of parameter space?
-    1c. If not, should it be?
-    1d. What do you need to optimise to get it there?
-2. How can we evaluate the "performance recovery" of a power plant design?
-    2b. What does PROCESS change to ensure the minimum performance requirements are met?
+The constructor (`__init__`) takes the following parameters:
 
-These questions can be summarised as:
+- `path_to_uq_data_folder`: Path to the folder containing uncertainty data.
+- `figure_of_merit`: A metric used for analysis (e.g., performance, cost, etc.).
+- `input_parameters`: A list of input parameter names.
 
-1. Is our design reliabile? (Which uncertain values drive PROCESS convergence?)
-2. Why is our design the way it is?
+#### Data Handling
 
-## Methodology
+- The class merges HDF files containing uncertainty data.
+- Columns with the same value in every row are removed.
+- The `sqsumsq` column is transformed using the natural logarithm.
+- The input parameter names are stored in `self.input_names`.
 
-PROCESS works with an optimiser and a solver.
-The solver tries to find a solution to the constraint equations posed in the input file.
-The optimiser tries to find the optimum solution subject to a figure of merit, typically `major radius`.
-We want to understand the internal logic of the PROCESS optimiser, what parameters does it trade to find an optimised and converged solution.
-We can use that information to evaluate the concept and see what is being "traded" to achieve a good design.
+#### Convergence Analysis
 
-### Procedure
+- The class identifies converged and unconverged runs based on an `ifail` column.
+- If no failed runs are found, it assumes all runs are converged.
 
-#### Perform a Monte Carlo run: use PROCESS `evaluate_uncertainties.py` to generate some Monte Carlo data
+#### Sampled Variables and Figures of Merit
 
-    * This should give you output `uncertainties_data.h5` (and optionally `scoping_data.h5`)
-    * `uncertainties_data.h5` should be data for the complete MC run. It contains all the parameters in the MFILE dumped as h5.
-    * `scoping_data.h5` is a "scoping" data set. By default this is written after 20 converged runs. Allows you to peak at the data without waiting for a full run to complete.
+- Sampled variables for plotting are stored in `self.sampled_vars_to_plot`.
+- The significance level (default 0.05) is used for plotting.
+- The number of converged and unconverged runs is tracked.
 
-#### Create a notebook and import tools
+### Methods
 
-These tools are designed to be used with a jupytr notebook. Create a notebook and import the classes you'd like to use. Create instances of those classes.
+- `estimate_design_values(self, variables)`: Calculates mean values of sampled parameters as initial guesses. Assumes a uniform distribution for the parameters.
+- `configure_data_for_plotting(self)`: Organizes UQ data into dataframes suitable for plotting. Plots either all sampled parameters or user-named parameters.
+- `calculate_sensitivity(self, figure_of_merit)`: Computes sensitivity indices for converged UQ runs using the Salib `rbd_fast` method.
+- `plot_rbd_si_indices(self)`: Calculates RBD FAST Sobol Indices and creates a plot. Displays sensitivity indices (S1) for different parameters related to fusion power.
 
-    ```python
-    proj_dir = "/path/to/your/output/"
-    figure_of_merit = "rmajor"
-    uq_data = UncertaintyData(proj_dir, figure_of_merit,use_scoping_data=False)
-    ```
+### Additional Features
 
-#### Compile the data and perform analysis
+The class provides methods for regional sensitivity analysis, HDMR analysis, and ECDF plots.
 
-`UncertaintyData` is a class which looks for files in the format `uncertainties_data.h5` and `scoping_data.h5` (and variants on the name) and compiles them into a dataframe. It then has various functions to clean, sort and analyse the data.
+## ConfidenceAnalysis Class Documentation
 
-    ```python
-    uq_data.calculate_sensitivity(figure_of_merit)
-    uq_data.calculate_reliability()
-    print("Number of samples: ", len(uq_data.uncertainties_df))
-    print("Number of converged runs: ", uq_data.number_of_converged_runs)
-    Whprint("Failure Rate: ", uq_data.failure_probability,"+/-", uq_data.failure_cov)
-    ```
+The `ConfidenceAnalysis` class is designed to perform interval analysis on uncertainty quantification (UQ) and Copula data. It calculates confidence intervals, optimizes configurations, and prepares data for plotting. This documentation provides an overview of the class, its methods, and usage guidelines.
 
-    Perform a regional sensitivity analysis to determine which parameters are driving PROCESS convergence:
+## Introduction
 
-    ```python
-    uq_data.convergence_regional_sensitivity_analysis(uq_data.input_names)
-    uq_data.plot_sumsq_sensitivity()
-    ```
+The `ConfidenceAnalysis` class is part of a larger UQ and Copula analysis framework. It aims to provide insights into the confidence intervals of uncertain parameters and optimize configurations based on interval probabilities. By using this class, you can enhance your understanding of the uncertainty associated with your system.
 
-    Retreive the values which are significant:
+## Class Overview
 
-    ```python
-    uq_data.convergence_regional_sensitivity_analysis(uq_data.input_names)
-    uq_data.plot_sumsq_sensitivity()
-    significant_conv_vars = uq_data.find_significant_parameters(uq_data.sumsq_sensitivity_df,"unconverged",0.05).tolist()
-    ```
+- **Class Name**: ConfidenceAnalysis
+- **Purpose**: Interval analysis for UQ and Copula data
+- **Attributes**:
+  - `number_intervals`: Number of intervals for probability calculations
+  - `weight_confidence`: Weighting factor favoring high confidence
+  - `weight_overlap`: Weighting factor favoring no error overlap
+  - `uq_data`: Uncertainty data for analysis
+  - `input_names`: List of input variable names
+  - `converged_data`: Converged data (real or synthetic)
+  - `custom_data_point`: Custom data point for analysis
+  - ... (other relevant attributes)
 
-#### Further Analysis and Visualisation (Copulas)
+## Methods
 
-A copula is a multivariate cumulative distribution function whcih is used to model the correlation between random variables.
-A copula class has been created to help analyse the Monte Carlo output.
+### Parameter Validation
 
-##### Tips using copulas
+- `__init__(self, uq_data, input_names, ...)`: Initializes the class instance, validates input parameters, and sets attributes.
 
-You can fit "bounded or "unbounded" copulas. Each approach has some benefits and drawbacks.
-The copula package tries to fit distributions to the data. You can modify the code to set the exact fit you want for a given distribution, and it's recommended to experiment with different approaches to see how it can effect the results. Try to reduce the number of parameters you sample (discard uninfluential parameters), and increase the number of samples you have to model.
+### Attribute Initialization
 
-###### Unbounded fit
+- `_sort_converged_data_by_variable(self, variable)`: Sorts the converged data by the specified variable.
+- `_get_design_range_and_value(self, variable)`: Determines the design range and value for the given variable.
 
-Unbounted includes Gaussian Kernel Density Estimation (KDE). This means that the probability density function (PDF) is represented as a sum of Gaussian kernels, centred on each data point.
+### Interval Probability Calculation
 
-This technique is useful as it doesn't assume the shape of the distribution of the data, this means it can fit the data well.
-However, there are some drawbacks:
+- `calculate_variable_probabilities(self, variable, number_intervals)`: Finds intervals in uncertain space with the highest rate of convergence. Calculates interval probabilities and confidence.
 
-- It's difficult to fit with few sample points.
-- It's more resource heavy which means it's difficult to generate large numbers of synthetic samples (limits the number of parameters you can model and the number of samples you can generate).
+### Optimization and Data Preparation
 
-To use an unbounded fit for a few sample points, you probably need at least 100 samples but the more the better. If you don't have enough samples the Copula package won't be able to fit a Gaussian KDE.
+- `modify_data(self, variable_data)`: Converts variable data into a format suitable for plotting graphs and tables. Computes joint probabilities and additional statistics.
 
-###### Bounded fit
+### Additional Methods
 
-Unbounded uses a parameterised fitting technique. This means that the Copula tool tries to select a predefined distribution to fit to the data (typically a Gaussian distribution, could be gamma or beta). It's less computationally expensive to do this, and the fit is parameterised so that it won't generate data outside the bounds of the sample set. This is beneficial if you are working with a large number of parameters and want to generate many sythentic samples. It's also easier to fit these distributions to few data points.
-The downside is that the fit may not closely match the dataset and the results may not be truly representative (imagine fitting a gaussian to a gamma distribution).
+- `_add_interval_column(self, dataframe, variable, design_range_intervals)`: Adds an interval column to the given DataFrame.
+- `_calculate_metric(self, confidences, errors, weight_confidence, weight_overlap)`: Calculates a metric to evaluate the number of intervals.
+- ... (other relevant methods)
 
-###### Predictions using the copula
+## Usage
 
-One of the reasons to use the copula is to predict from a few samples where the optimal space is. This can be used to quickly optimise a design space, without wasting time sampling. The idea is to use only a few converged runs (5-20) to quickly determine the optimal region of the design space.
+1. Instantiate the `ConfidenceAnalysis` class with appropriate parameters.
+2. Call relevant methods to perform interval analysis and prepare data.
+3. Visualize results using plots, tables, or other tools.
+
+## Examples
+
+Provide examples demonstrating the usage of the `ConfidenceAnalysis` class.
