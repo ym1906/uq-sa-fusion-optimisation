@@ -119,4 +119,4 @@ The `ConfidenceAnalysis` class is part of a larger UQ and Copula analysis framew
 
 ## Examples
 
-Provide examples demonstrating the usage of the `ConfidenceAnalysis` class.
+Check the `examples` folder for a notebook implementation.
