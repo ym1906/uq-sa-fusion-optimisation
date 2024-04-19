@@ -751,12 +751,9 @@ class ConfidenceAnalysis:
         )
         return probability_vbar_grid
 
-    def create_datatable(self, variables):
-        """Create a datatable which summarises findings from the copula."
+    def create_datatable(self):
+        """Create a datatable which summarises findings from the copula."""
 
-        :param variables: Copula variables
-        :type variables: List(str)
-        """
         general_formatter = HTMLTemplateFormatter(
             template='<span style="color: black;"><%- value %></span>'
         )
@@ -817,7 +814,6 @@ class ConfidenceAnalysis:
                 title="Range End",
                 formatter=general_formatter,
             ),
-            # This prediction isn't very good, so I will comment it out for now.
         ]
         if self.custom_data_point is not None:
             columns.insert(
