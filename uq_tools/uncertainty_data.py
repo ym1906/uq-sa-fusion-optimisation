@@ -21,16 +21,10 @@ class UncertaintyData:
         path_to_uq_data_folder,
         figure_of_merit,
         input_parameters,
-        use_scoping_data=False,
     ):
         self.path_in = path_to_uq_data_folder
         self.figure_of_merit = figure_of_merit
-
-        # self.uncertainties_df, self.sampled_vars_df = self.merge_hdf_files(
-        #     use_scoping_data
-        # )
         self.uncertainties_df = self.merge_hdf_files()
-
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
