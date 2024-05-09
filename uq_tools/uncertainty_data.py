@@ -19,11 +19,9 @@ class UncertaintyData:
     def __init__(
         self,
         path_to_uq_data_folder,
-        figure_of_merit,
         input_parameters,
     ):
         self.path_in = path_to_uq_data_folder
-        self.figure_of_merit = figure_of_merit
         self.uncertainties_df = self.merge_hdf_files()
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
@@ -95,10 +93,8 @@ class UncertaintyData:
         self.number_sampled_vars = len(self.input_names)
         self.converged_sampled_vars_df = self.converged_df[self.input_names]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.input_names]
-        self.unconverged_fom_df = self.uncertainties_df[self.figure_of_merit]
-        # Significance level is used for plotting, indicates level below which we consider
+        self.significance_level = 0.05  # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
-        self.significance_level = 0.05
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
 
@@ -129,6 +125,7 @@ class UncertaintyData:
             "ohcth": "ohcth",
             "beta": "beta",
             "betalim": "betalim",
+            "n_cycle_min": "Minimum number of allowable stress cycles",
         }
 
     def estimate_design_values(self, variables):
@@ -144,14 +141,11 @@ class UncertaintyData:
         if len(self.sampled_vars_to_plot) == 0:
             print("Plotting all sampled parameters")
             self.plot_names.extend(self.input_names)
-            self.plot_names.extend([self.figure_of_merit])
-
             self.plot_converged_df = self.converged_df[self.plot_names]
             self.plot_unconverged_df = self.unconverged_df[self.plot_names]
         else:
             print("Ploting user named parameters")
             self.plot_names.extend(self.sampled_vars_to_plot)
-            self.plot_names.extend([self.figure_of_merit])
 
             self.plot_converged_df = self.converged_df[self.plot_names]
             self.plot_unconverged_df = self.unconverged_df[self.plot_names]
@@ -286,7 +280,7 @@ class UncertaintyData:
         # plt.savefig("plots/sensitivity_fom.svg", bbox_inches="tight")
         plt.show()
 
-    def plot_sumsq_sensitivity(self, export_svg=False):
+    def plot_sumsq_sensitivity(self, export_svg=False, svg_path=None):
         """Find the input paramters influencing whether PROCESS converges."""
         fig, ax = plt.subplots(1)
         ax.tick_params(labelsize=16)
@@ -320,7 +314,13 @@ class UncertaintyData:
 
         plt.grid()
         if export_svg:
-            plt.savefig("rds_indices.svg", bbox_inches="tight")
+            if svg_path:
+                # Use the provided export path
+                filename = os.path.join(svg_path, "rds_indices.svg")
+            else:
+                # Use the default directory of the script
+                filename = os.path.join(os.path.dirname(__file__), "rds_indices.svg")
+            plt.savefig(filename, bbox_inches="tight")
         plt.show()
 
     def convergence_study(self, n, sampled_inputs, process_output):
@@ -438,7 +438,6 @@ class UncertaintyData:
         :rtype: pandas.DataFrame, pandas.Dataframe
         """
         list_uncertainties_dfs = []
-        list_params_dfs = []
         for root, dirs, files in os.walk(self.path_in):
             for file in files:
                 pos_hdf = root + os.sep + file
