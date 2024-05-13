@@ -174,15 +174,6 @@ class UncertaintyData:
             # When the failure rate is 1
             self.failure_cov = 0.0
 
-    def read_json(self, file):
-        """Read and print a json file.
-
-        :param file: Path to json
-        :type file: str
-        """
-        df = pd.read_json(file, orient="split")
-        print(df)
-
     def plot_rbd_si_indices(self):
         """Calculate RBD FAST Sobol Indices and plot"""
         fig, ax = plt.subplots(1)
@@ -704,3 +695,13 @@ process_variable_dict = {
     "betalim": "betalim",
     "n_cycle_min": "Minimum number of allowable stress cycles",
 }
+
+
+def read_json(file):
+    """Read and print a json file.
+
+    :param file: Path to json
+    :type file: str
+    """
+    df = pd.read_json(file, orient="split")
+    print(df)
