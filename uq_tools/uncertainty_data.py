@@ -5,16 +5,14 @@ import statsmodels.api as sm
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from pylab import figure
 from shapely.geometry import LineString
 from bokeh.plotting import figure
-import numpy as np
 
 
 class UncertaintyData:
-    """Collects and analyses the output from the evaluate_uncertainties.py tool. Supply an instance with the input
-    folder for the run data. The tool looks for hdf files containing uncertainty data, merges them, and has functions
-    to clean, analyse, and plot the data."""
+    """The tool looks for hdf files containing uncertainty data, merges them,
+    and has functions to clean, analyse, and plot the data.
+    """
 
     def __init__(
         self,
@@ -60,10 +58,10 @@ class UncertaintyData:
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
 
-    def estimate_design_values(self, variables):
+    def estimate_design_values(uq_dataframe, variables):
         """Find the mean values of sampled parameters as a guess of input initial value
         (assumes uniform distribution)"""
-        design_values_df = self.uncertainties_df[variables]
+        design_values_df = uq_dataframe[variables]
         mean_values_df = design_values_df.mean(axis=0)
 
         return mean_values_df
@@ -380,14 +378,14 @@ class UncertaintyData:
         """
         Create a scatter plot to visuals inputs against the figure of merit. Used to look for trends in the data at a glance.
         diagonal: either "hist", "kde" or "density"
-        See def scatter_matrix in: https://github.com/pandas-dev/pandas/blob/526f40431a51e1b1621c30a4d74df9006e0274b8/pandas/plotting/_matplotlib/misc.py
-
+        See def scatter_matrix in:
+        https://github.com/pandas-dev/pandas/blob/526f40431a51e1b1621c30a4d74df9006e0274b8/pandas/plotting/_matplotlib/misc.py
         """
         range_padding = 0.05
         hist_kwds = hist_kwds or {}
         density_kwds = density_kwds or {}
 
-        ## fix input data
+        # fix input data
         mask = pd.notna(df)
 
         boundaries_list = []
@@ -397,10 +395,10 @@ class UncertaintyData:
             rdelta_ext = (rmax_ - rmin_) * range_padding / 2.0
             boundaries_list.append((rmin_ - rdelta_ext, rmax_ + rdelta_ext))
 
-        ## iterate over columns
+        # Iterate over columns.
         for i, a in enumerate(df.columns):
             for j, b in enumerate(df.columns):
-                ax = axes[i, j]  ## to abbreviate the code
+                ax = axes[i, j]  # to abbreviate the code
 
                 if i == j:
                     values = df[a].values[mask[a].values]
@@ -444,7 +442,7 @@ class UncertaintyData:
 
     def plot_scatter_plot(self, plot_unconverged=False):
         """Configures the plot the scatter plot.
-        :param plot_unconverged: Plot unconverged runs in a red histogram, defaults to False
+        :param plot_unconverged: Plot unconverged runs in a red histogram.
         :type plot_unconverged: bool, optional
         """
 
@@ -474,7 +472,7 @@ class UncertaintyData:
             marker=".",
         )
 
-        if plot_unconverged == True:
+        if plot_unconverged is True:
             self.create_scatter_plot(
                 axes,
                 diagonal="hist",
@@ -622,7 +620,7 @@ class UncertaintyData:
         ypoint = 0.5
         if figure_of_merit == "kappa":
             ypoint = 1.0
-        ### copy curve line y coords and set to a constant
+        # copy curve line y coords and set to a constant
         lines = y_unconv.copy()
         lines[:] = ypoint
 
