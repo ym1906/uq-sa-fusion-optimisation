@@ -481,12 +481,12 @@ class UncertaintyData:
         # y = figure of merit (sqsumsq)
         figure_of_merit_df = self.uncertainties_df["sqsumsq"]
         sampled_vars_df = self.uncertainties_df[variable_names]
-        self.problem = {
+        problem = {
             "num_vars": len(sampled_vars_df),
             "names": variable_names,
         }
         rsa_result = rsa.analyze(
-            problem=self.problem,
+            problem=problem,
             X=sampled_vars_df.to_numpy(),
             Y=figure_of_merit_df.to_numpy(),
             bins=2,
