@@ -512,13 +512,13 @@ class UncertaintyData:
     ):
         figure_of_merit_df = dataframe[figure_of_merit]
         sampled_vars_df = dataframe[variables_to_sample]
-        self.problem = {
+        problem = {
             "num_vars": len(sampled_vars_df),
             "names": variables_to_sample,
         }
         # Regional sensitivity analysis
         rsa_result = rsa.analyze(
-            problem=self.problem,
+            problem=problem,
             X=sampled_vars_df.to_numpy(),
             Y=figure_of_merit_df.to_numpy(),
             bins=bins,
