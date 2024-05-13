@@ -28,41 +28,6 @@ class UncertaintyData:
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
         self.sampled_variables = sampled_variables
-        self.itv = [
-            "bt",
-            "te",
-            "beta",
-            "dene",
-            "tfcth",
-            "wallmw",
-            "ohcth",
-            "bigq",
-            "bore",
-            "betalim",
-            "coheof",
-            "cohbop",
-            "kappa",
-            # "gapoh",
-            "fvsbrnni",
-            "itvar019",
-            "itvar020",
-            "jwptf",
-            "vtfskv",
-            "vdalw",
-            "tdmptf",
-            "thkcas",
-            "thwcndut",
-            "fcutfsu",
-            "cpttf",
-            # "gapds",
-            "plhthresh",
-            "tmargtf",
-            "tmargoh",
-            "oh_steel_frac",
-            "pdivt",
-            "powfmw",
-            "rmajor",
-        ]
         self.number_sampled_vars = len(self.sampled_variables)
         self.problem = {
             "num_vars": self.number_sampled_vars,
