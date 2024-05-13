@@ -60,36 +60,6 @@ class UncertaintyData:
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
 
-        # Using a dict for converting param names for plotting
-        self.name_dict = {
-            "walalw": "Max neutron wall-load (MW/m$^{2}$)",
-            "kappa": "Plasma separatrix elongation",
-            "triang": "Plasma separatrix triangularity",
-            "ralpne": "Thermal alpha/electron density (%)",
-            "etaech": "ECH wall plug to injector eff. (%)",
-            "pinjalw": "Max injected power (MW)",
-            "alstroh": "Allowable hoop stress in CS (Pa)",
-            "coreradius": "Normalised core radius (m)",
-            "sig_tf_wp_max": "Max sheer stress in TF coil (Pa)",
-            "psepbqarmax": "Divertor protection (MWT/m)",
-            "sig_tf_case_max": "Max stress in TF coil case (Pa)",
-            "powfmw": "Fusion power (MW)",
-            "etath": "Thermal to electric eff. (%)",
-            "wallmw": "Neutron wall-load (MW/m$^{2}$)",
-            "aspect": "Aspect ratio",
-            "tbrnmn": "Minimum burn time (s)",
-            "tape_thickness": "Tape thickness ()",
-            "thicndut": "thicndut ()",
-            "dhecoil": "dhecoil",
-            "rmajor": "major radius (m)",
-            "tmargtf": "Temperature margin TF coil",
-            "dene": "dene",
-            "ohcth": "ohcth",
-            "beta": "beta",
-            "betalim": "betalim",
-            "n_cycle_min": "Minimum number of allowable stress cycles",
-        }
-
     def estimate_design_values(self, variables):
         """Find the mean values of sampled parameters as a guess of input initial value
         (assumes uniform distribution)"""
@@ -222,7 +192,7 @@ class UncertaintyData:
 
         ax.tick_params(labelsize=14)
         sensdf = self.sensitivity_df
-        sensdf = sensdf.rename(self.name_dict, axis=0)
+        sensdf = sensdf.rename(process_variable_dict, axis=0)
         # x-axis
         sensdf.plot(
             kind="barh", y="S1", xerr="S1_conf", ax=ax, align="center", capsize=3
@@ -249,9 +219,9 @@ class UncertaintyData:
         """Find the input paramters influencing whether PROCESS converges."""
         fig, ax = plt.subplots(1)
         ax.tick_params(labelsize=16)
-        sumsqnamedf = self.sumsq_sensitivity_df.rename(self.name_dict, axis=0).clip(
-            lower=0.0
-        )
+        sumsqnamedf = self.sumsq_sensitivity_df.rename(
+            process_variable_dict, axis=0
+        ).clip(lower=0.0)
         # x-axis
         sumsqnamedf.plot(
             kind="barh",
@@ -356,7 +326,7 @@ class UncertaintyData:
             name_df.plot(
                 x="samples",
                 y="S1",
-                label=self.name_dict[name],
+                label=process_variable_dict[name],
                 ax=conv_ax,
                 linewidth=3,
             )
@@ -462,8 +432,8 @@ class UncertaintyData:
                     ax.set_xlim(boundaries_list[j])
                     ax.set_ylim(boundaries_list[i])
                 ax.tick_params(axis="both", which="major", labelsize=12)
-                ax.set_xlabel(self.name_dict[b], fontsize=12)
-                ax.set_ylabel(self.name_dict[a], fontsize=12)
+                ax.set_xlabel(process_variable_dict[b], fontsize=12)
+                ax.set_ylabel(process_variable_dict[a], fontsize=12)
 
                 if i < j:
                     axes[i, j].set_visible(False)
@@ -626,7 +596,7 @@ class UncertaintyData:
         ax1.step(x, y_unconv, color="tab:red", label="Unconverged samples")
         ax1.step(x, y_conv, color="tab:blue", label="Converged samples")
         ax1.set_ylabel("Percentage of Samples", fontsize=20)
-        ax1.set_xlabel(self.name_dict[figure_of_merit], fontsize=20)
+        ax1.set_xlabel(process_variable_dict[figure_of_merit], fontsize=20)
         # Calculate rate of convergence for bins in x
         for d in range(len(x) - 1):
             n_c = len(
@@ -714,3 +684,33 @@ def merge_hdf_files(path_to_hdf):
                 extra_uncertainties_df = pd.read_hdf(pos_hdf)
                 list_uncertainties_dfs.append(extra_uncertainties_df)
     return pd.concat(list_uncertainties_dfs)
+
+
+process_variable_dict = {
+    "walalw": "Max neutron wall-load (MW/m$^{2}$)",
+    "kappa": "Plasma separatrix elongation",
+    "triang": "Plasma separatrix triangularity",
+    "ralpne": "Thermal alpha/electron density (%)",
+    "etaech": "ECH wall plug to injector eff. (%)",
+    "pinjalw": "Max injected power (MW)",
+    "alstroh": "Allowable hoop stress in CS (Pa)",
+    "coreradius": "Normalised core radius (m)",
+    "sig_tf_wp_max": "Max sheer stress in TF coil (Pa)",
+    "psepbqarmax": "Divertor protection (MWT/m)",
+    "sig_tf_case_max": "Max stress in TF coil case (Pa)",
+    "powfmw": "Fusion power (MW)",
+    "etath": "Thermal to electric eff. (%)",
+    "wallmw": "Neutron wall-load (MW/m$^{2}$)",
+    "aspect": "Aspect ratio",
+    "tbrnmn": "Minimum burn time (s)",
+    "tape_thickness": "Tape thickness ()",
+    "thicndut": "thicndut ()",
+    "dhecoil": "dhecoil",
+    "rmajor": "major radius (m)",
+    "tmargtf": "Temperature margin TF coil",
+    "dene": "dene",
+    "ohcth": "ohcth",
+    "beta": "beta",
+    "betalim": "betalim",
+    "n_cycle_min": "Minimum number of allowable stress cycles",
+}
