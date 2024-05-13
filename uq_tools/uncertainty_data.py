@@ -20,12 +20,16 @@ class UncertaintyData:
         sampled_variables,
     ):
         self.path_in = path_to_uq_data_folder
+        self.sampled_variables = sampled_variables
+
+    def load_data(self):
         self.uncertainties_df = merge_hdf_files(self.path_in)
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
-        self.sampled_variables = sampled_variables
+
+    def process_data(self):
         self.number_sampled_vars = len(self.sampled_variables)
         self.problem = {
             "num_vars": self.number_sampled_vars,
@@ -33,6 +37,8 @@ class UncertaintyData:
         }
         # Drop the unnecessary levels from the columns
         self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
+
+    def separate_converged_unconverged(self):
         try:
             self.converged_df = self.uncertainties_df[
                 self.uncertainties_df["ifail"] == 1.0
@@ -49,11 +55,17 @@ class UncertaintyData:
                 columns=self.converged_df.columns,
                 index=self.converged_df.index,
             )
+
+    def initialize_data(self):
+        self.load_data()
+        self.process_data()
+        self.separate_converged_unconverged()
+
+    def initialize_plotting(self):
         self.sampled_vars_to_plot = []
         self.plot_names = []
         self.converged_sampled_vars_df = self.converged_df[self.sampled_variables]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.sampled_variables]
-        self.significance_level = 0.05  # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
         self.number_of_converged_runs = len(self.converged_df.index)
         self.number_of_unconverged_runs = len(self.unconverged_df)
@@ -80,32 +92,33 @@ class UncertaintyData:
             self.plot_converged_df = self.converged_df[self.plot_names]
             self.plot_unconverged_df = self.unconverged_df[self.plot_names]
 
-    def get_fom_converged_df(self, figure_of_merit):
-        """Get the Figure of Merit (fom) from the dataframe containing converged runs.
+    def filter_dataframe(self, dataframe, variables):
+        """Filter a dataframe for given variables.
 
-        :param fom: Figure of Merit
+        :param variables: Figures of merit
         :type fom: str
         :return: Converged FOM DataFrame
         :rtype: pandas.Series
         """
-        return self.converged_df[figure_of_merit]
+        return dataframe[variables]
 
-    def calculate_sensitivity(
-        self,
-        figure_of_merit,
-    ):
+    def calculate_sensitivity(self, figure_of_merit, sampled_variables):
         """Calculate the sensitivity indices for a set of converged UQ runs.
         Uses the Salib rbd_fast analysis method.
         """
-        converged_figure_of_merit_df = self.get_fom_converged_df(figure_of_merit)
-        sampled_vars_df = self.converged_sampled_vars_df
+        converged_figure_of_merit_df = self.filter_dataframe(
+            self.converged_df, figure_of_merit
+        )
+        sampled_variables_df = self.filter_dataframe(
+            self.converged_df, sampled_variables
+        )
         problem = {
             "num_vars": self.number_sampled_vars,
             "names": self.sampled_variables,
         }
         sirbd_fast = rbd_fast.analyze(
             problem,
-            sampled_vars_df.to_numpy(),
+            sampled_variables_df.to_numpy(),
             converged_figure_of_merit_df.to_numpy(),
         )
         self.sensitivity_df = sirbd_fast.to_df()
@@ -132,13 +145,13 @@ class UncertaintyData:
 
     def find_influential_conv_parameters(self):
         """Find the input parameters with a value above the significance level.
-        self.sumsq_sensitivity_df = pd.DataFrame()
+        self.convergence_rsa_result = pd.DataFrame()
 
         :return: _description_
         :rtype: _type_
         """
-        significant_df = self.sumsq_sensitivity_df[
-            self.sumsq_sensitivity_df["converged"].ge(self.significance_level)
+        significant_df = self.convergence_rsa_result[
+            self.convergence_rsa_result["converged"].ge(self.significance_level)
         ]
         return significant_df.index.map(str).values
 
@@ -204,11 +217,14 @@ class UncertaintyData:
         # plt.savefig("plots/sensitivity_fom.svg", bbox_inches="tight")
         plt.show()
 
-    def plot_sumsq_sensitivity(self, export_svg=False, svg_path=None):
+    def plot_sumsq_sensitivity(
+        self, export_svg=False, svg_path=None, significance_level=None
+    ):
         """Find the input paramters influencing whether PROCESS converges."""
+        significance_level = significance_level or 0.05
         fig, ax = plt.subplots(1)
         ax.tick_params(labelsize=16)
-        sumsqnamedf = self.sumsq_sensitivity_df.rename(
+        sumsqnamedf = self.convergence_rsa_result.rename(
             process_variable_dict, axis=0
         ).clip(lower=0.0)
         # x-axis
@@ -225,9 +241,9 @@ class UncertaintyData:
         ax.set_xlabel("Influence on convergance", fontsize=20)
         ax.set_ylabel("PROCESS parameter", fontsize=20)
         ax.fill_betweenx(
-            y=[-0.5, len(self.sumsq_sensitivity_df)],
+            y=[-0.5, len(self.convergence_rsa_result)],
             x1=0,
-            x2=self.significance_level,
+            x2=significance_level,
             color="grey",
             alpha=0.2,
             hatch="//",
@@ -280,7 +296,9 @@ class UncertaintyData:
         :return: Array of arrays containing sensitivity indices for each sampled input
         :rtype: numpy.array()
         """
-        converged_figure_of_merit_df = self.get_fom_converged_df(figure_of_merit)
+        converged_figure_of_merit_df = self.filter_dataframe(
+            self.converged_df, figure_of_merit
+        )
         sampled_vars_df = self.converged_sampled_vars_df
 
         indices_df_list = []
@@ -298,13 +316,16 @@ class UncertaintyData:
 
         return indices_df
 
-    def plot_convergence_study(self, step_size, figure_of_merit):
+    def plot_convergence_study(
+        self, step_size, figure_of_merit, significance_level=None
+    ):
         """Performs a convergence study and plots the results. Plots confidence levels only if
         final indices are greater than significance level.
 
         :param step_size: Number of samples to increment by when calculating sensitivity indices
         :type step_size: int
         """
+        significance_level = significance_level or 0.05
         indices_df = self.find_convergence_indices(step_size, figure_of_merit)
         conv_fig, conv_ax = plt.subplots()
         conv_fig.set_size_inches(10, 6)
@@ -320,7 +341,7 @@ class UncertaintyData:
                 linewidth=3,
             )
 
-            if name_df["S1"].iloc[-1] > self.significance_level:
+            if name_df["S1"].iloc[-1] > significance_level:
                 plt.fill_between(
                     name_df["samples"],
                     (name_df["S1"] - name_df["S1_conf"]),
@@ -332,7 +353,7 @@ class UncertaintyData:
         conv_ax.fill_between(
             x=[indices_df["samples"].min(), indices_df["samples"].max()],
             y1=-0.15,
-            y2=self.significance_level,
+            y2=significance_level,
             color="grey",
             alpha=0.3,
             hatch="//",
@@ -477,16 +498,15 @@ class UncertaintyData:
     def convergence_regional_sensitivity_analysis(self, variable_names):
         """Regional sensitivity anlysis to find the parameters which influence a converged solution.
         Uses modified RSA technique from SALib."""
-        # x = inputs
-        # y = figure of merit (sqsumsq)
+        variable_names = variable_names or self.sampled_variables
         figure_of_merit_df = self.uncertainties_df["sqsumsq"]
         sampled_vars_df = self.uncertainties_df[variable_names]
-        problem = {
+        convergence_problem = {
             "num_vars": len(sampled_vars_df),
             "names": variable_names,
         }
-        rsa_result = rsa.analyze(
-            problem=problem,
+        convergence_rsa_result = rsa.analyze(
+            problem=convergence_problem,
             X=sampled_vars_df.to_numpy(),
             Y=figure_of_merit_df.to_numpy(),
             bins=2,
@@ -495,12 +515,13 @@ class UncertaintyData:
             seed=1,
             mode="process",
         )
-        self.sumsq_sensitivity_df = rsa_result.to_df()
-        self.sumsq_sensitivity_df = self.sumsq_sensitivity_df.T
-        self.sumsq_sensitivity_df.columns = ["converged", "unconverged"]
-        self.sumsq_sensitivity_df = self.sumsq_sensitivity_df.sort_values(
+        convergence_rsa_result = convergence_rsa_result.to_df()
+        convergence_rsa_result = convergence_rsa_result.T
+        convergence_rsa_result.columns = ["converged", "unconverged"]
+        convergence_rsa_result = convergence_rsa_result.sort_values(
             by="unconverged", ascending=False
         )
+        self.convergence_rsa_result = convergence_rsa_result
 
     def regional_sensitivity_analysis(
         self,
