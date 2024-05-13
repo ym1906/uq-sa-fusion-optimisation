@@ -19,15 +19,15 @@ class UncertaintyData:
     def __init__(
         self,
         path_to_uq_data_folder,
-        input_parameters,
+        sampled_variables,
     ):
         self.path_in = path_to_uq_data_folder
-        self.uncertainties_df = self.merge_hdf_files()
+        self.uncertainties_df = merge_hdf_files(self.path_in)
         # Remove columns which have the same value in every row.
         self.unique_array = unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
-        self.input_names = input_parameters
+        self.sampled_variables = sampled_variables
         self.itv = [
             "bt",
             "te",
@@ -63,13 +63,11 @@ class UncertaintyData:
             "powfmw",
             "rmajor",
         ]
-        # self.input_names.extend(itv)
-        self.number_sampled_vars = len(self.input_names)
+        self.number_sampled_vars = len(self.sampled_variables)
         self.problem = {
             "num_vars": self.number_sampled_vars,
-            "names": self.input_names,
+            "names": self.sampled_variables,
         }
-
         # Drop the unnecessary levels from the columns
         self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
         try:
@@ -90,9 +88,8 @@ class UncertaintyData:
             )
         self.sampled_vars_to_plot = []
         self.plot_names = []
-        self.number_sampled_vars = len(self.input_names)
-        self.converged_sampled_vars_df = self.converged_df[self.input_names]
-        self.unconverged_sampled_vars_df = self.unconverged_df[self.input_names]
+        self.converged_sampled_vars_df = self.converged_df[self.sampled_variables]
+        self.unconverged_sampled_vars_df = self.unconverged_df[self.sampled_variables]
         self.significance_level = 0.05  # Significance level is used for plotting, indicates level below which we consider
         # index values insignificant, 0.05 by default - subjective.
         self.number_of_converged_runs = len(self.converged_df.index)
@@ -140,7 +137,7 @@ class UncertaintyData:
         """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
         if len(self.sampled_vars_to_plot) == 0:
             print("Plotting all sampled parameters")
-            self.plot_names.extend(self.input_names)
+            self.plot_names.extend(self.sampled_variables)
             self.plot_converged_df = self.converged_df[self.plot_names]
             self.plot_unconverged_df = self.unconverged_df[self.plot_names]
         else:
@@ -160,7 +157,10 @@ class UncertaintyData:
         """
         return self.converged_df[figure_of_merit]
 
-    def calculate_sensitivity(self, figure_of_merit):
+    def calculate_sensitivity(
+        self,
+        figure_of_merit,
+    ):
         """Calculate the sensitivity indices for a set of converged UQ runs.
         Uses the Salib rbd_fast analysis method.
         """
@@ -168,7 +168,7 @@ class UncertaintyData:
         sampled_vars_df = self.converged_sampled_vars_df
         self.problem = {
             "num_vars": self.number_sampled_vars,
-            "names": self.input_names,
+            "names": self.sampled_variables,
         }
         sirbd_fast = rbd_fast.analyze(
             self.problem,
@@ -323,15 +323,15 @@ class UncertaintyData:
             plt.savefig(filename, bbox_inches="tight")
         plt.show()
 
-    def convergence_study(self, n, sampled_inputs, process_output):
+    def convergence_study(self, n, sampled_variables, process_output):
         """This function is used to calculate RBD FAST sensitivities indices for a subset.
         It draws a random sample, of a given size, from the total dataset. This is used to
         create a study of the convergence of the indices for the input parameters.
 
         :param n: Number of samples to select
         :type n: int
-        :param sampled_inputs: Array of the sampled input parameters
-        :type sampled_inputs: numpy.array()
+        :param sampled_variables: Array of the sampled input parameters
+        :type sampled_variables: numpy.array()
         :param process_output: Array of the figure of merit
         :type process_output: numpy.array()
         :return: Sensitivity Indices dict, length of the subset
@@ -340,10 +340,10 @@ class UncertaintyData:
         subset = np.random.choice(len(process_output), size=n, replace=False)
         self.problem = {
             "num_vars": self.number_sampled_vars,
-            "names": self.input_names,
+            "names": self.sampled_variables,
         }
         rbd_results = rbd_fast.analyze(
-            self.problem, X=sampled_inputs[subset], Y=process_output[subset]
+            self.problem, X=sampled_variables[subset], Y=process_output[subset]
         )
         return rbd_results, len(subset)
 
@@ -365,7 +365,7 @@ class UncertaintyData:
         ):
             rbd_results, len_subset = self.convergence_study(
                 n=n,
-                sampled_inputs=sampled_vars_df.to_numpy(),
+                sampled_variables=sampled_vars_df.to_numpy(),
                 process_output=converged_figure_of_merit_df.to_numpy(),
             )
             rbd_results["samples"] = len_subset
@@ -386,7 +386,7 @@ class UncertaintyData:
         conv_fig.set_size_inches(10, 6)
         conv_ax.set_ylim(ymin=-0.15, ymax=1)
 
-        for name in self.input_names:
+        for name in self.sampled_variables:
             name_df = indices_df.loc[[name]]
             name_df.plot(
                 x="samples",
@@ -429,22 +429,6 @@ class UncertaintyData:
             bbox_inches="tight",
         )
         plt.show()
-
-    def merge_hdf_files(self):
-        """Looks for uncertainty hdf files in the working folder and merges them into a
-        single dataframe for analysis.
-
-        :return: Uncertainties DataFrame, Parameters DataFrame
-        :rtype: pandas.DataFrame, pandas.Dataframe
-        """
-        list_uncertainties_dfs = []
-        for root, dirs, files in os.walk(self.path_in):
-            for file in files:
-                pos_hdf = root + os.sep + file
-                if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
-                    extra_uncertainties_df = pd.read_hdf(pos_hdf)
-                    list_uncertainties_dfs.append(extra_uncertainties_df)
-        return pd.concat(list_uncertainties_dfs)
 
     def create_scatter_plot(
         self,
@@ -748,3 +732,20 @@ def unique_cols(df):
     """
     a = df.to_numpy()
     return (a[0] == a).all(0)
+
+
+def merge_hdf_files(path_to_hdf):
+    """Looks for uncertainty hdf files in the working folder and merges them into a
+    single dataframe for analysis.
+
+    :return: Uncertainties DataFrame, Parameters DataFrame
+    :rtype: pandas.DataFrame, pandas.Dataframe
+    """
+    list_uncertainties_dfs = []
+    for root, dirs, files in os.walk(path_to_hdf):
+        for file in files:
+            pos_hdf = root + os.sep + file
+            if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
+                extra_uncertainties_df = pd.read_hdf(pos_hdf)
+                list_uncertainties_dfs.append(extra_uncertainties_df)
+    return pd.concat(list_uncertainties_dfs)
