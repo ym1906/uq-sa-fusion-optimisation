@@ -262,12 +262,12 @@ class UncertaintyData:
         :rtype: dict, int
         """
         subset = np.random.choice(len(process_output), size=n, replace=False)
-        self.problem = {
+        problem = {
             "num_vars": self.number_sampled_vars,
             "names": self.sampled_variables,
         }
         rbd_results = rbd_fast.analyze(
-            self.problem, X=sampled_variables[subset], Y=process_output[subset]
+            problem, X=sampled_variables[subset], Y=process_output[subset]
         )
         return rbd_results, len(subset)
 
