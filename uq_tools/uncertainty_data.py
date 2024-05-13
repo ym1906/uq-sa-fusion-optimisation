@@ -62,8 +62,6 @@ class UncertaintyData:
         self.separate_converged_unconverged()
 
     def initialize_plotting(self):
-        self.sampled_vars_to_plot = []
-        self.plot_names = []
         self.converged_sampled_vars_df = self.converged_df[self.sampled_variables]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.sampled_variables]
         # index values insignificant, 0.05 by default - subjective.
@@ -78,19 +76,17 @@ class UncertaintyData:
 
         return mean_values_df
 
-    def configure_data_for_plotting(self):
+    def configure_data_for_plotting(self, variables_to_plot=None):
         """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
-        if len(self.sampled_vars_to_plot) == 0:
-            print("Plotting all sampled parameters")
-            self.plot_names.extend(self.sampled_variables)
-            self.plot_converged_df = self.converged_df[self.plot_names]
-            self.plot_unconverged_df = self.unconverged_df[self.plot_names]
+        if variables_to_plot is None:
+            print("Plotting all variables in dataframe")
+            self.plot_converged_df = self.converged_df[variables_to_plot]
+            self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
         else:
             print("Ploting user named parameters")
-            self.plot_names.extend(self.sampled_vars_to_plot)
-
-            self.plot_converged_df = self.converged_df[self.plot_names]
-            self.plot_unconverged_df = self.unconverged_df[self.plot_names]
+            print(self.converged_df.columns.tolist())
+            self.plot_converged_df = self.converged_df[variables_to_plot]
+            self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
 
     def filter_dataframe(self, dataframe, variables):
         """Filter a dataframe for given variables.
@@ -123,11 +119,8 @@ class UncertaintyData:
         )
         self.sensitivity_df = sirbd_fast.to_df()
         self.sensitivity_df = self.sensitivity_df.sort_values(by="S1", ascending=False)
-        self.pdf = []
 
-    def find_significant_parameters(
-        self, sensitivity_data, data_column, significance_level
-    ):
+    def find_significant_parameters(self, sensitivity_data, significance_level):
         """Find the parameters above a given significance level.
 
         :param sensitivity_data: Dataframe with sensitivity indices
@@ -137,9 +130,7 @@ class UncertaintyData:
         :return: Significant parameters
         :rtype: list
         """
-        significant_df = sensitivity_data[
-            sensitivity_data[data_column].ge(significance_level)
-        ]
+        significant_df = sensitivity_data[sensitivity_data["S1"].ge(significance_level)]
         self.significant_conv_vars = significant_df.index.map(str).values
         return significant_df.index.map(str).values
 
@@ -187,8 +178,9 @@ class UncertaintyData:
             # When the failure rate is 1
             self.failure_cov = 0.0
 
-    def plot_rbd_si_indices(self):
+    def plot_rbd_si_indices(self, figure_of_merit, significance_level=None):
         """Calculate RBD FAST Sobol Indices and plot"""
+        significance_level = significance_level or 0.05
         fig, ax = plt.subplots(1)
         # fig.set_size_inches(18, 5)
 
@@ -200,14 +192,14 @@ class UncertaintyData:
             kind="barh", y="S1", xerr="S1_conf", ax=ax, align="center", capsize=3
         )
         # y-axis
-        ax.set_xlabel("Sensitivity Indices: " + "Fusion power", fontsize=20)
+        ax.set_xlabel("Sensitivity Indices: " + figure_of_merit, fontsize=20)
         ax.set_ylabel("PROCESS parameter", fontsize=20)
 
         # in striped grey : not significant indices
         ax.fill_betweenx(
             y=[-0.5, len(self.sensitivity_df)],
             x1=0,
-            x2=self.significance_level,
+            x2=significance_level,
             color="grey",
             alpha=0.2,
             hatch="//",
