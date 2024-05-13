@@ -99,12 +99,12 @@ class UncertaintyData:
         """
         converged_figure_of_merit_df = self.get_fom_converged_df(figure_of_merit)
         sampled_vars_df = self.converged_sampled_vars_df
-        self.problem = {
+        problem = {
             "num_vars": self.number_sampled_vars,
             "names": self.sampled_variables,
         }
         sirbd_fast = rbd_fast.analyze(
-            self.problem,
+            problem,
             sampled_vars_df.to_numpy(),
             converged_figure_of_merit_df.to_numpy(),
         )
