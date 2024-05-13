@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from SALib.analyze import rbd_fast, hdmr, rsa
+from SALib.analyze import rbd_fast, rsa
 import statsmodels.api as sm
 import numpy as np
 import matplotlib.pyplot as plt
@@ -558,14 +558,6 @@ class UncertaintyData:
             ncol=5,
         )
         return filtered_max_rsa
-
-    def hdmr_analysis(self):
-        """HDMR Analysis - not well explored."""
-        fom_df = self.get_fom_converged_df("sqsumsq")
-        hdmr_res = hdmr.analyze(
-            self.problem, self.converged_sampled_vars_df.to_numpy(), fom_df.to_numpy()
-        )
-        print(hdmr_res.to_df().to_string())
 
     def ecdf_plot(self, figure_of_merit):
         """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
