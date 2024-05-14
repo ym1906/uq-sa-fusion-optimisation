@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from shapely.geometry import LineString
-from bokeh.plotting import figure
+from bokeh.plotting import figure, show
 
 
 class UncertaintyData:
@@ -136,7 +136,7 @@ class UncertaintyData:
         """
         significant_df = sensitivity_data[sensitivity_data["S1"].ge(significance_level)]
         self.significant_conv_vars = significant_df.index.map(str).values
-        return significant_df.index.map(str).values
+        return significant_df.index.map(str).values.tolist()
 
     def find_influential_conv_parameters(self):
         """Find the input parameters with a value above the significance level.
@@ -628,29 +628,6 @@ class UncertaintyData:
         first_line = LineString(np.column_stack((x, y_unconv)))
         second_line = LineString(np.column_stack((x, lines)))
         intersection = first_line.intersection(second_line)
-        ax1.plot(*intersection.xy, "s", color="tab:green", markersize=7)
-
-        # plot hline and vline
-        ax1.hlines(
-            y=ypoint,
-            xmin=min(x),
-            xmax=intersection.x,
-            label="Design point value",
-            clip_on=False,
-            color="tab:green",
-            linestyles="dashed",
-            alpha=0.7,
-        )
-        ax1.vlines(
-            x=intersection.x,
-            ymin=0,
-            ymax=intersection.y,
-            clip_on=True,
-            color="tab:green",
-            linestyles="dashed",
-            alpha=0.7,
-        )
-
         ax1.legend()
         ax1.grid(axis="both")
 
