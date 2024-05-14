@@ -79,12 +79,16 @@ class UncertaintyData:
     def configure_data_for_plotting(self, variables_to_plot=None):
         """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
         if variables_to_plot is None:
-            print("Plotting all variables in dataframe")
+            variables_to_plot = self.converged_df.columns.tolist()
+            variables_to_plot.remove("run_id")
+            variables_to_plot.remove("ifail")
+            variables_to_plot.remove("sqsumsq")
+            print("Plotting all variables found in UQ dataframe.")
+            print(variables_to_plot)
             self.plot_converged_df = self.converged_df[variables_to_plot]
             self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
         else:
-            print("Ploting user named parameters")
-            print(self.converged_df.columns.tolist())
+            print("Ploting user named parameters.")
             self.plot_converged_df = self.converged_df[variables_to_plot]
             self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
 
@@ -707,14 +711,42 @@ process_variable_dict = {
     "beta": "beta",
     "betalim": "betalim",
     "n_cycle_min": "Minimum number of allowable stress cycles",
+    "bt": "Magnetic field (T)",
+    "te": "Electron density",
+    "tfcth": "TF coil thickness (m)",
+    "bigq": "Fusion gain",
+    "bore": "Bore size (m)",
+    "coheof": "Current end-of-flat-top",
+    "cohbop": "Current beginning-of-flat-top",
+    "kappa": "Eleongation",
+    "fvsbrnni": "fvsbrnni",
+    "itvar019": "itvar019",
+    "itvar020": "itvar020",
+    "jwptf": "jwptf",
+    "vtfskv": "vtfskv",
+    "vdalw": "vdalw",
+    "tdmptf": "tdmptf",
+    "thkcas": "thkcas",
+    "thwcndut": "thwcndut",
+    "fcutfsu": "fcutfsu",
+    "cpttf": "cpttf",
+    "plhthresh": "plhthresh",
+    "tmargtf": "tmargtf",
+    "tmargoh": "tmargoh",
+    "oh_steel_frac": "Steel Fraction in CS coil",
+    "pdivt": "pdivt",
+    "powfmw": "Fusion Power (MW)",
 }
 
 
 def read_json(file):
     """Read and print a json file.
 
+
     :param file: Path to json
+
     :type file: str
+
     """
     df = pd.read_json(file, orient="split")
     print(df)
