@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from shapely.geometry import LineString
 from bokeh.plotting import figure, show
+from bokeh.layouts import gridplot, row
 
 
 class UncertaintyData:
@@ -371,6 +372,43 @@ class UncertaintyData:
         )
         plt.show()
 
+    def scatter(
+        self,
+        data,
+        x_variable,
+        y_variable,
+        bins=10,
+    ):
+        p = figure(title="Scatter Plot Comparison")
+
+        # Extract data
+        x = data[x_variable]
+        y = data[y_variable]
+
+        # Compute 2D histogram
+        H, xe, ye = np.histogram2d(x=x, y=y, bins=bins)
+
+        # Create an image plot
+        p.image(
+            image=[H.T],
+            x=xe[0],
+            y=ye[0],
+            dw=xe[-1] - xe[0],
+            dh=ye[-1] - ye[0],
+            palette="Spectral11",
+            alpha=0.6,
+        )
+
+        # Overlay scatter points
+        p.scatter(x=x, y=y, size=8, color="blue", alpha=0.5)
+
+        # Customize the plot
+        p.xaxis.axis_label = process_variable_dict[x_variable]
+        p.yaxis.axis_label = process_variable_dict[y_variable]
+
+        # Show the plot
+        show(row(p))
+
     def create_scatter_plot(
         self,
         axes=None,
@@ -407,14 +445,11 @@ class UncertaintyData:
         for i, a in enumerate(df.columns):
             for j, b in enumerate(df.columns):
                 ax = axes[i, j]  # to abbreviate the code
-
                 if i == j:
                     values = df[a].values[mask[a].values]
-
                     # Deal with the diagonal by drawing a histogram there.
                     if diagonal == "hist":
                         ax.hist(values, color=color, alpha=alpha, **hist_kwds)
-
                     elif diagonal in ("kde", "density"):
                         from scipy.stats import gaussian_kde
 
@@ -422,7 +457,6 @@ class UncertaintyData:
                         gkde = gaussian_kde(y)
                         ind = np.linspace(y.min(), y.max(), 1000)
                         ax.plot(ind, gkde.evaluate(ind), color=color, **density_kwds)
-
                     ax.set_xlim(boundaries_list[i])
                     # Take the text off inbetween diagonal plots.
                     if i < 4:
@@ -681,7 +715,7 @@ process_variable_dict = {
     "tape_thickness": "Tape thickness ()",
     "thicndut": "thicndut ()",
     "dhecoil": "dhecoil",
-    "rmajor": "major radius (m)",
+    "rmajor": "Major Radius (m)",
     "tmargtf": "Temperature margin TF coil",
     "dene": "dene",
     "ohcth": "ohcth",
