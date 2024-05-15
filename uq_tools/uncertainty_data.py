@@ -393,6 +393,7 @@ class UncertaintyData:
         scatter=True,
         hist=True,
         bins=10,
+        export_image=False,
     ):
         p = figure(title="Scatter Plot Comparison")
 
@@ -425,6 +426,12 @@ class UncertaintyData:
 
         # Show the plot
         show(row(p))
+        if export_image:
+            # Use the default directory of the script
+            filename = (
+                self.image_export_path + "/" + x_variable + y_variable + "-plot.png"
+            )
+            export_png(p, filename=filename)
 
     def scatter_grid(
         self,
@@ -483,11 +490,9 @@ class UncertaintyData:
         # Create a grid layout
         grid = gridplot(plots)
         if export_image:
-            filename = os.path.join(
-                self.image_export_path,
-                f"scatter-grid.png",
-            )
-            export_png(grid, filename=filename, height=height_width, width=height_width)
+            # Use the default directory of the script
+            filename = self.image_export_path + "/" "scatter_grid_plot.png"
+            export_png(p, filename=filename)
         # Show the plot
         show(grid)
 
@@ -531,6 +536,7 @@ class UncertaintyData:
         dataframe,
         bins=10,
         confidence_level=0.1,
+        export_image=False,
     ):
         figure_of_merit_df = dataframe[figure_of_merit]
         sampled_vars_df = dataframe[variables_to_sample]
@@ -583,10 +589,15 @@ class UncertaintyData:
         p.add_layout(legend, "right")
 
         show(p)
-
+        if export_image:
+            # Use the default directory of the script
+            filename = self.image_export_path + "/" + figure_of_merit + "-rsa-plot.png"
+            export_png(p, filename=filename)
         return filtered_max_rsa
 
-    def ecdf_plot(self, figure_of_merit, num_steps=10, image_height_width=500):
+    def ecdf_plot(
+        self, figure_of_merit, num_steps=10, image_height_width=500, export_image=False
+    ):
         """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
         Additionally, plot the convergence rate and the design point value.
 
@@ -663,6 +674,10 @@ class UncertaintyData:
         p.legend.click_policy = "hide"
 
         show(p)
+        if export_image:
+            # Use the default directory of the script
+            filename = self.image_export_path + "/" + figure_of_merit + "-ecdf-plot.png"
+            export_png(p, filename=filename)
 
 
 def unique_cols(df):
