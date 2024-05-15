@@ -22,7 +22,7 @@
     - [Examples](#examples)
 
 ## UncertaintyData Class Documentation
-
+![alt text](<https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/Input%20Parameters%20Influencing%20Convergence_plot.png>)
 The `UncertaintyData` class is designed for collecting and analyzing output data from an `evaluate_uncertainties.py` tool. It merges HDF files containing uncertainty data, cleans, analyzes, and plots the data. Below, we’ll explore the key components and methods of this class.
 
 ### Key Components
