@@ -8,6 +8,8 @@ import matplotlib as mpl
 from shapely.geometry import LineString
 from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot, row
+from bokeh.io import export_svgs, export_png, export_svg
+from bokeh.models import ColumnDataSource, Range1d
 
 
 class UncertaintyData:
@@ -22,6 +24,7 @@ class UncertaintyData:
     ):
         self.path_in = path_to_uq_data_folder
         self.sampled_variables = sampled_variables
+        self.image_export_path = path_to_uq_data_folder
 
     def load_data(self):
         self.uncertainties_df = merge_hdf_files(self.path_in)
@@ -57,7 +60,17 @@ class UncertaintyData:
                 index=self.converged_df.index,
             )
 
+    def set_image_export_path(self, path):
+        """
+        Sets the image export path.
+
+        Args:
+            path (str): The desired export path for images.
+        """
+        self.image_export_path = path
+
     def initialize_data(self):
+        """Runs data processing functions in sequence."""
         self.load_data()
         self.process_data()
         self.separate_converged_unconverged()
@@ -77,21 +90,21 @@ class UncertaintyData:
 
         return mean_values_df
 
-    def configure_data_for_plotting(self, variables_to_plot=None):
-        """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
-        if variables_to_plot is None:
-            variables_to_plot = self.converged_df.columns.tolist()
-            variables_to_plot.remove("run_id")
-            variables_to_plot.remove("ifail")
-            variables_to_plot.remove("sqsumsq")
-            print("Plotting all variables found in UQ dataframe.")
-            print(variables_to_plot)
-            self.plot_converged_df = self.converged_df[variables_to_plot]
-            self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
-        else:
-            print("Ploting user named parameters.")
-            self.plot_converged_df = self.converged_df[variables_to_plot]
-            self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
+    # def configure_data_for_plotting(self, variables_to_plot=None):
+    #     """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
+    #     if variables_to_plot is None:
+    #         variables_to_plot = self.converged_df.columns.tolist()
+    #         variables_to_plot.remove("run_id")
+    #         variables_to_plot.remove("ifail")
+    #         variables_to_plot.remove("sqsumsq")
+    #         print("Plotting all variables found in UQ dataframe.")
+    #         print(variables_to_plot)
+    #         self.plot_converged_df = self.converged_df[variables_to_plot]
+    #         self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
+    #     else:
+    #         print("Ploting user named parameters.")
+    #         self.plot_converged_df = self.converged_df[variables_to_plot]
+    #         self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
 
     def filter_dataframe(self, dataframe, variables):
         """Filter a dataframe for given variables.
@@ -124,6 +137,11 @@ class UncertaintyData:
         )
         self.sensitivity_df = sirbd_fast.to_df()
         self.sensitivity_df = self.sensitivity_df.sort_values(by="S1", ascending=False)
+        variable_names = self.sensitivity_df.index.values.tolist()
+        indices = self.sensitivity_df["S1"]
+        index_err = self.sensitivity_df["S1_conf"]
+
+        return variable_names, indices, index_err
 
     def find_significant_parameters(self, sensitivity_data, significance_level):
         """Find the parameters above a given significance level.
@@ -183,7 +201,7 @@ class UncertaintyData:
             # When the failure rate is 1
             self.failure_cov = 0.0
 
-    def plot_rbd_si_indices(self, figure_of_merit, significance_level=None):
+    def plot_sobol_indices(self, figure_of_merit, significance_level=None):
         """Calculate RBD FAST Sobol Indices and plot"""
         significance_level = significance_level or 0.05
         fig, ax = plt.subplots(1)
@@ -214,51 +232,61 @@ class UncertaintyData:
         # plt.savefig("plots/sensitivity_fom.svg", bbox_inches="tight")
         plt.show()
 
-    def plot_sumsq_sensitivity(
-        self, export_svg=False, svg_path=None, significance_level=None
+    def plot_sensitivity(
+        self, indices, names, export_image=False, significance_level=None, title=None
     ):
-        """Find the input paramters influencing whether PROCESS converges."""
+
         significance_level = significance_level or 0.05
-        fig, ax = plt.subplots(1)
-        ax.tick_params(labelsize=16)
-        sumsqnamedf = self.convergence_rsa_result.rename(
-            process_variable_dict, axis=0
-        ).clip(lower=0.0)
-        # x-axis
-        sumsqnamedf.plot(
-            kind="barh",
-            y="unconverged",
-            ax=ax,
-            align="center",
-            label="Significance Index",
-            capsize=3,
+
+        # Create a Bokeh figure
+        p = figure(
+            title=title,
+            width=800,
+            height=400,
+            y_range=names,
+        )
+        # Create a ColumnDataSource for the data
+        source = ColumnDataSource(
+            {
+                "x": indices,
+                "names": names,
+            }
+        )
+        # Add a shaded region of insignificance
+        p.quad(
+            top=len(indices),
+            bottom=-0.5,
+            left=0,
+            right=significance_level,
+            fill_color="grey",
+            fill_alpha=0.2,
+            line_color="white",
+            legend_label="Region of Insignificance",
+        )
+        # Plot horizontal bars#
+        p.hbar(
+            y="names",
+            left=0,
+            right="x",
+            height=0.8,
+            source=source,
+            fill_color="blue",
+            line_color="white",
+            legend_label="Significance Index",
+            alpha=0.7,
         )
 
-        # y-axis
-        ax.set_xlabel("Influence on convergance", fontsize=20)
-        ax.set_ylabel("PROCESS parameter", fontsize=20)
-        ax.fill_betweenx(
-            y=[-0.5, len(self.convergence_rsa_result)],
-            x1=0,
-            x2=significance_level,
-            color="grey",
-            alpha=0.2,
-            hatch="//",
-            edgecolor="white",
-            label="Region of Insignificance",
-        )
-        ax.legend(fontsize=12, borderpad=0.01, ncol=1)
+        # Customize the plot
+        p.xaxis.axis_label = "Index"
+        p.yaxis.axis_label = "PROCESS Parameter"
+        p.legend.location = "top_right"
+        p.legend.label_text_font_size = "12pt"
 
-        plt.grid()
-        if export_svg:
-            if svg_path:
-                # Use the provided export path
-                filename = os.path.join(svg_path, "rds_indices.svg")
-            else:
-                # Use the default directory of the script
-                filename = os.path.join(os.path.dirname(__file__), "rds_indices.svg")
-            plt.savefig(filename, bbox_inches="tight")
-        plt.show()
+        show(p)
+        if export_image:
+            # Use the default directory of the script
+            filename = self.image_export_path + "/crsa_plot.png"
+            export_png(p, filename=filename)
 
     def convergence_study(self, n, sampled_variables, process_output):
         """This function is used to calculate RBD FAST sensitivities indices for a subset.
@@ -377,6 +405,8 @@ class UncertaintyData:
         data,
         x_variable,
         y_variable,
+        scatter=True,
+        hist=True,
         bins=10,
     ):
         p = figure(title="Scatter Plot Comparison")
@@ -389,18 +419,20 @@ class UncertaintyData:
         H, xe, ye = np.histogram2d(x=x, y=y, bins=bins)
 
         # Create an image plot
-        p.image(
-            image=[H.T],
-            x=xe[0],
-            y=ye[0],
-            dw=xe[-1] - xe[0],
-            dh=ye[-1] - ye[0],
-            palette="Spectral11",
-            alpha=0.6,
-        )
+        if hist is True:
+            p.image(
+                image=[H.T],
+                x=xe[0],
+                y=ye[0],
+                dw=xe[-1] - xe[0],
+                dh=ye[-1] - ye[0],
+                palette="Spectral11",
+                alpha=0.6,
+            )
 
         # Overlay scatter points
-        p.scatter(x=x, y=y, size=8, color="blue", alpha=0.5)
+        if scatter is True:
+            p.scatter(x=x, y=y, size=8, color="blue", alpha=0.5)
 
         # Customize the plot
         p.xaxis.axis_label = process_variable_dict[x_variable]
@@ -409,121 +441,70 @@ class UncertaintyData:
         # Show the plot
         show(row(p))
 
-    def create_scatter_plot(
+    def scatter_grid(
         self,
-        axes=None,
-        df=None,
-        diagonal="density",
-        density_kwds=None,
-        hist_kwds=None,
-        marker="*",
-        alpha=0.5,
-        color="tab:blue",
-        **kwds,
+        data,
+        variables,
+        bins=10,
+        scatter=True,
+        hist=True,
+        height_width=250,
+        export_image=False,
     ):
-        """
-        Create a scatter plot to visuals inputs against the figure of merit. Used to look for trends in the data at a glance.
-        diagonal: either "hist", "kde" or "density"
-        See def scatter_matrix in:
-        https://github.com/pandas-dev/pandas/blob/526f40431a51e1b1621c30a4d74df9006e0274b8/pandas/plotting/_matplotlib/misc.py
-        """
-        range_padding = 0.05
-        hist_kwds = hist_kwds or {}
-        density_kwds = density_kwds or {}
+        # Create a grid of scatter plots
+        plots = []
+        for i, var1 in enumerate(variables):
+            row_plots = []
+            for j, var2 in enumerate(variables):
+                if j >= i:
+                    # Compute 2D histogram
+                    H, xe, ye = np.histogram2d(x=data[var1], y=data[var2], bins=bins)
 
-        # fix input data
-        mask = pd.notna(df)
-
-        boundaries_list = []
-        for a in df.columns:
-            values = df[a].values[mask[a].values]
-            rmin_, rmax_ = np.min(values), np.max(values)
-            rdelta_ext = (rmax_ - rmin_) * range_padding / 2.0
-            boundaries_list.append((rmin_ - rdelta_ext, rmax_ + rdelta_ext))
-
-        # Iterate over columns.
-        for i, a in enumerate(df.columns):
-            for j, b in enumerate(df.columns):
-                ax = axes[i, j]  # to abbreviate the code
-                if i == j:
-                    values = df[a].values[mask[a].values]
-                    # Deal with the diagonal by drawing a histogram there.
-                    if diagonal == "hist":
-                        ax.hist(values, color=color, alpha=alpha, **hist_kwds)
-                    elif diagonal in ("kde", "density"):
-                        from scipy.stats import gaussian_kde
-
-                        y = values
-                        gkde = gaussian_kde(y)
-                        ind = np.linspace(y.min(), y.max(), 1000)
-                        ax.plot(ind, gkde.evaluate(ind), color=color, **density_kwds)
-                    ax.set_xlim(boundaries_list[i])
-                    # Take the text off inbetween diagonal plots.
-                    if i < 4:
-                        ax.get_xaxis().set_visible(False)
-                else:
-                    common = (mask[a] & mask[b]).values
-                    h = ax.hist2d(
-                        x=df[b][common], y=df[a][common], bins=10, cmap="magma"
+                    # Create an image plot
+                    p = figure(
+                        title=f"{var1} vs {var2}",
+                        height=height_width,
+                        width=height_width,
                     )
-                    if i > j:
-                        plt.colorbar(h[3], ax=ax)
-                    plt.grid()
-                    ax.set_xlim(boundaries_list[j])
-                    ax.set_ylim(boundaries_list[i])
-                ax.tick_params(axis="both", which="major", labelsize=12)
-                ax.set_xlabel(process_variable_dict[b], fontsize=12)
-                ax.set_ylabel(process_variable_dict[a], fontsize=12)
+                    if hist is True:
+                        p.image(
+                            image=[H.T],
+                            x=xe[0],
+                            y=ye[0],
+                            dw=xe[-1] - xe[0],
+                            dh=ye[-1] - ye[0],
+                            palette="Spectral11",
+                            alpha=0.6,
+                        )
 
-                if i < j:
-                    axes[i, j].set_visible(False)
-                if j != 0:
-                    ax.yaxis.set_visible(False)
+                    # Overlay scatter points
+                    if scatter is True:
+                        p.scatter(
+                            x=data[var1],
+                            y=data[var2],
+                            size=8,
+                            color="blue",
+                            alpha=0.5,
+                        )
+                    # Customize the plot
+                    p.xaxis.axis_label = var1
+                    p.yaxis.axis_label = var2
+                    row_plots.append(p)
+                else:
+                    row_plots.append(None)
 
-        return
+            plots.append(row_plots)
 
-    def plot_scatter_plot(self, plot_unconverged=False):
-        """Configures the plot the scatter plot.
-        :param plot_unconverged: Plot unconverged runs in a red histogram.
-        :type plot_unconverged: bool, optional
-        """
-
-        figsize = (30, 30)
-        figure()
-        plt.figure(figsize=figsize)
-        axes = {}
-        n = self.plot_converged_df.columns.size
-        gs = mpl.gridspec.GridSpec(
-            n,
-            n,
-            left=0.12,
-            right=0.97,
-            bottom=0.12,
-            top=0.97,
-            wspace=0.025,
-            hspace=0.005,
-        )
-        for i, a in enumerate(self.plot_converged_df.columns):
-            for j, b in enumerate(self.plot_converged_df.columns):
-                axes[i, j] = plt.subplot(gs[i, j])
-        self.create_scatter_plot(
-            axes=axes,
-            df=self.plot_converged_df,
-            diagonal="hist",
-            color="#0000ff",
-            marker=".",
-        )
-
-        if plot_unconverged is True:
-            self.create_scatter_plot(
-                axes,
-                diagonal="hist",
-                df=self.plot_unconverged_df,
-                color="#ff0000",
-                marker=".",
+        # Create a grid layout
+        grid = gridplot(plots)
+        if export_image:
+            filename = os.path.join(
+                self.image_export_path,
+                f"scatter-grid.png",
             )
-        # plt.savefig("plots/2dhist.svg", bbox_inches="tight")
-        plt.show()
+            export_png(grid, filename=filename, height=height_width, width=height_width)
+        # Show the plot
+        show(grid)
 
     def convergence_regional_sensitivity_analysis(self, variable_names):
         """Regional sensitivity anlysis to find the parameters which influence a converged solution.
@@ -551,7 +532,12 @@ class UncertaintyData:
         convergence_rsa_result = convergence_rsa_result.sort_values(
             by="unconverged", ascending=False
         )
+
         self.convergence_rsa_result = convergence_rsa_result
+        variable_names = convergence_rsa_result.index.values.tolist()
+        indices = convergence_rsa_result["unconverged"]
+
+        return variable_names, indices
 
     def regional_sensitivity_analysis(
         self,
@@ -599,20 +585,20 @@ class UncertaintyData:
             shadow=True,
             ncol=5,
         )
+
         return filtered_max_rsa
 
-    def ecdf_plot(self, figure_of_merit):
+    def ecdf_plot(self, figure_of_merit, num_steps=10, image_height_width=500):
         """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
         Additionally, plot the convergence rate and the design point value.
 
         :param figure_of_merit: Parameter to investigate
         :type figure_of_merit: str
+        :param num_steps: Number of steps for the ECDF lines, default is 100
+        :type num_steps: int
         """
-        fig, ax1 = plt.subplots(1)
-        plt.rcParams["axes.xmargin"] = 0
-        plt.rcParams["axes.ymargin"] = 0
-        ax2 = ax1.twinx()
-        plt.style.library["tableau-colorblind10"]
+        line_width = 10
+        image_height_width
         # Arrange the data into df
         converged_fom_df = self.converged_df[figure_of_merit].to_numpy()
         uq_fom_df = self.uncertainties_df[figure_of_merit].to_numpy()
@@ -620,15 +606,35 @@ class UncertaintyData:
         ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
         ecdf_conv = sm.distributions.ECDF(converged_fom_df)
         # Bin the data
-        x = np.linspace(min(uq_fom_df), max(uq_fom_df))
+        x = np.linspace(min(uq_fom_df), max(uq_fom_df), num_steps)
         ri_t = []
         y_unconv = ecdf_unconv(x)
         y_conv = ecdf_conv(x)
+
+        # Plotting with Bokeh
+        p = figure(
+            x_axis_label=process_variable_dict[figure_of_merit],
+            y_axis_label="Percentage of Samples",
+            width=image_height_width,
+            height=image_height_width,
+            title="ECDF Plot",
+        )
         # Plot the ecdf functions
-        ax1.step(x, y_unconv, color="tab:red", label="Unconverged samples")
-        ax1.step(x, y_conv, color="tab:blue", label="Converged samples")
-        ax1.set_ylabel("Percentage of Samples", fontsize=20)
-        ax1.set_xlabel(process_variable_dict[figure_of_merit], fontsize=20)
+        p.line(
+            x,
+            y_unconv,
+            line_color="red",
+            legend_label="Unconverged samples",
+            line_width=line_width,
+        )
+        p.line(
+            x,
+            y_conv,
+            line_color="blue",
+            legend_label="Converged samples",
+            line_width=line_width,
+        )
+
         # Calculate rate of convergence for bins in x
         for d in range(len(x) - 1):
             n_c = len(
@@ -645,25 +651,84 @@ class UncertaintyData:
                 n_t = 0.0000001
             ri = n_c / n_t
             ri_t.append(ri)
-        # Finds the edges of bins (must be a better way to do this section)
-        h, edges = np.histogram(ri_t, bins=x)
-        # Plot convergence rate
-        ax1.stairs(ri_t, edges, color="tab:orange", label="Convergence rate")
-        ax2.set_ylabel("Convergence Rate", fontsize=20)
-        # Plot design point
-        ypoint = 0.5
-        if figure_of_merit == "kappa":
-            ypoint = 1.0
-        # copy curve line y coords and set to a constant
-        lines = y_unconv.copy()
-        lines[:] = ypoint
 
-        # get intersection
-        first_line = LineString(np.column_stack((x, y_unconv)))
-        second_line = LineString(np.column_stack((x, lines)))
-        intersection = first_line.intersection(second_line)
-        ax1.legend()
-        ax1.grid(axis="both")
+        # Plot convergence rate
+        p.line(
+            x[:-1],
+            ri_t,
+            line_color="orange",
+            legend_label="Convergence rate",
+            line_width=line_width,
+        )
+
+        p.legend.location = "top_left"
+        p.legend.click_policy = "hide"
+
+        show(p)
+
+    # def ecdf_plot(self, figure_of_merit):
+    #     """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
+    #     Additionally, plot the convergence rate and the design point value.
+
+    #     :param figure_of_merit: Parameter to investigate
+    #     :type figure_of_merit: str
+    #     """
+    #     fig, ax1 = plt.subplots(1)
+    #     plt.rcParams["axes.xmargin"] = 0
+    #     plt.rcParams["axes.ymargin"] = 0
+    #     ax2 = ax1.twinx()
+    #     plt.style.library["tableau-colorblind10"]
+    #     # Arrange the data into df
+    #     converged_fom_df = self.converged_df[figure_of_merit].to_numpy()
+    #     uq_fom_df = self.uncertainties_df[figure_of_merit].to_numpy()
+    #     # Calculate cumulative distribution functions
+    #     ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
+    #     ecdf_conv = sm.distributions.ECDF(converged_fom_df)
+    #     # Bin the data
+    #     x = np.linspace(min(uq_fom_df), max(uq_fom_df))
+    #     ri_t = []
+    #     y_unconv = ecdf_unconv(x)
+    #     y_conv = ecdf_conv(x)
+    #     # Plot the ecdf functions
+    #     ax1.step(x, y_unconv, color="tab:red", label="Unconverged samples")
+    #     ax1.step(x, y_conv, color="tab:blue", label="Converged samples")
+    #     ax1.set_ylabel("Percentage of Samples", fontsize=20)
+    #     ax1.set_xlabel(process_variable_dict[figure_of_merit], fontsize=20)
+    #     # Calculate rate of convergence for bins in x
+    #     for d in range(len(x) - 1):
+    #         n_c = len(
+    #             self.converged_df[
+    #                 self.converged_df[figure_of_merit].between(x[d], x[d + 1])
+    #             ].index
+    #         )
+    #         n_t = len(
+    #             self.uncertainties_df[
+    #                 self.uncertainties_df[figure_of_merit].between(x[d], x[d + 1])
+    #             ].index
+    #         )
+    #         if n_t == 0:
+    #             n_t = 0.0000001
+    #         ri = n_c / n_t
+    #         ri_t.append(ri)
+    #     # Finds the edges of bins (must be a better way to do this section)
+    #     h, edges = np.histogram(ri_t, bins=x)
+    #     # Plot convergence rate
+    #     ax1.stairs(ri_t, edges, color="tab:orange", label="Convergence rate")
+    #     ax2.set_ylabel("Convergence Rate", fontsize=20)
+    #     # Plot design point
+    #     ypoint = 0.5
+    #     if figure_of_merit == "kappa":
+    #         ypoint = 1.0
+    #     # copy curve line y coords and set to a constant
+    #     lines = y_unconv.copy()
+    #     lines[:] = ypoint
+
+    #     # get intersection
+    #     first_line = LineString(np.column_stack((x, y_unconv)))
+    #     second_line = LineString(np.column_stack((x, lines)))
+    #     intersection = first_line.intersection(second_line)
+    #     ax1.legend()
+    #     ax1.grid(axis="both")
 
 
 def unique_cols(df):
