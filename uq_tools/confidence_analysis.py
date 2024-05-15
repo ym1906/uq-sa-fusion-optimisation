@@ -37,11 +37,11 @@ from bokeh.io import export_svgs
 import numpy as np
 from itertools import combinations
 import warnings
-from uncertainty_data import UncertaintyData
+from uncertainty_data import UncertaintyData, process_variable_dict
 
 
 class ConfidenceAnalysis:
-    """A tool for plotting UQ and Copula data for analysis. This class performs an interval
+    """A tool for plotting UQ data for analysis. This class performs an interval
     analysis. It can calcualte the `confidence` of each interval for each parameter
     and plot this in a grid. Then you can also plot a data table to find the most confident
     interval.
@@ -79,7 +79,6 @@ class ConfidenceAnalysis:
         self.plot_list = []  # list of plots.
         self.variable_data = {}  # list of variable data classes.
         self.plot_height_width = 275  # height and width of plots.
-        self.design_means_df = uq_data.estimate_design_values(self.input_names)
         # Here you could switch between real and synthetic data. In general, use the real data
         # but synthetic may be useful if convergence is low.
         self.converged_data = (
@@ -187,7 +186,7 @@ class ConfidenceAnalysis:
         Sometimes synthetic can extend beyond the real data. This data is used to create
         grid plots later."""
         # need to rework this slightly for using synthetic data separately todo.
-        if variable in self.uq_data.input_names:
+        if variable in self.uq_data.sampled_variables:
             design_range_start, design_range_end, design_mean, design_variance = (
                 self.uq_data.uncertainties_df[variable].min(),
                 self.uq_data.uncertainties_df[variable].max(),
@@ -452,9 +451,6 @@ class ConfidenceAnalysis:
         self._calculate_jointerval_confidence(data)
 
         # Filter dataframes based on design and max probability values
-        design_filtered_df = self._filter_dataframe_by_index(
-            self.converged_data, data, "design_mean_index", self.input_names
-        )
         max_confidence_filtered_df = self._filter_dataframe_by_index(
             self.converged_data, data, "max_confidence_index", self.input_names
         )
@@ -503,13 +499,6 @@ class ConfidenceAnalysis:
             )
             data = data.apply(modify_row, axis=1)
 
-            # self._calculate_custom_jointerval_probability(data)
-
-        # Design and max probability means
-        # data["design_mean"] = (
-        #     design_filtered_df.mean() if design_filtered_df.shape[0] > 0 else 0.0
-        # )
-
         data["max_confidence_mean"] = (
             max_confidence_filtered_df.mean()
             if max_confidence_filtered_df.shape[0] > 0
@@ -540,18 +529,18 @@ class ConfidenceAnalysis:
         # The confidence of each interval is summed, and divided by the number of intervals. This is averaged for the
         # number of uncertain params you have.
         data["jointerval_input_probability"] = sum(
-            data.loc[self.uq_data.input_names, "confidence_sum"]
+            data.loc[self.uq_data.sampled_variables, "confidence_sum"]
             / (
                 len(self.input_names)
-                * (data.loc[self.uq_data.input_names, "number_of_intervals"])
+                * (data.loc[self.uq_data.sampled_variables, "number_of_intervals"])
             )
         )
 
         # This is the joint maximum confidence. The confidence if you selected the intervals
         # with the highest confidence.
         data["jointerval_max_confidence"] = data.loc[
-            self.uq_data.input_names, "max_confidence"
-        ].sum() / (len(self.uq_data.input_names))
+            self.uq_data.sampled_variables, "max_confidence"
+        ].sum() / (len(self.uq_data.sampled_variables))
 
     def calculate_mean(self, bin_centers, frequencies):
         # Calculate the mean (average) within an interval
@@ -623,7 +612,11 @@ class ConfidenceAnalysis:
     ):
         """Filter dataframe based on the given index_column. Data is variable dataframe."""
         return filter_dataframe_by_columns_and_values(
-            dataframe, variabledata, columns_to_filter, index_column, self.uq_data.itv
+            dataframe,
+            variabledata,
+            columns_to_filter,
+            index_column,
+            self.uq_data.sampled_variables,
         )
 
     def _calculate_custom_jointerval_probability(self, data):
@@ -705,7 +698,7 @@ class ConfidenceAnalysis:
             title="Convergance Probability",
         )
         # Check if the varialbe is in the name dictionary and replace the name with description.
-        uncertain_variable_name = self.uq_data.name_dict.get(
+        uncertain_variable_name = process_variable_dict.get(
             uncertain_variable_data.name, uncertain_variable_data.name
         )
 
@@ -738,12 +731,22 @@ class ConfidenceAnalysis:
             upper="upper",
             lower="lower",
         )
-        whisker.upper_head.size = 20
-        whisker.lower_head.size = 20
-        # p.add_layout(design_mean_box)
-        # p.add_layout(design_mean_probability_box)
+        whisker_width = 3
+        whisker_colour = "black"
+        whisker_alpha = 0.5
+        whisker_head_size = 20
+        whisker.line_color = whisker_colour
+        whisker.line_alpha = whisker_alpha
+        whisker.upper_head.line_color = whisker_colour
+        whisker.lower_head.line_color = whisker_colour
+        whisker.upper_head.line_alpha = whisker_alpha
+        whisker.lower_head.line_alpha = whisker_alpha
+        whisker.upper_head.size = whisker_head_size
+        whisker.lower_head.size = whisker_head_size
+        whisker.line_width = whisker_width
+        whisker.upper_head.line_width = whisker_width
+        whisker.lower_head.line_width = whisker_width
         p.add_layout(max_var_box)
-        # p.add_layout(max_confidence_box)
         p.add_layout(whisker)
         p.add_tools(
             HoverTool(
