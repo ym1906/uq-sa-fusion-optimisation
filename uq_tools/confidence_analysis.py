@@ -726,14 +726,11 @@ class ConfidenceAnalysis:
         )
         # Whisker is the error bars
         whisker = Whisker(
-            source=errsource,
-            base="base",
-            upper="upper",
-            lower="lower",
+            source=errsource, base="base", upper="upper", lower="lower", level="overlay"
         )
         whisker_width = 3
         whisker_colour = "black"
-        whisker_alpha = 0.5
+        whisker_alpha = 0.6
         whisker_head_size = 20
         whisker.line_color = whisker_colour
         whisker.line_alpha = whisker_alpha
