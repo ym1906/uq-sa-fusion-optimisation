@@ -9,7 +9,8 @@ from shapely.geometry import LineString
 from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot, row
 from bokeh.io import export_svgs, export_png, export_svg
-from bokeh.models import ColumnDataSource, Range1d
+from bokeh.models import ColumnDataSource, Range1d, Legend
+from bokeh.palettes import Category10
 
 
 class UncertaintyData:
@@ -89,22 +90,6 @@ class UncertaintyData:
         mean_values_df = design_values_df.mean(axis=0)
 
         return mean_values_df
-
-    # def configure_data_for_plotting(self, variables_to_plot=None):
-    #     """This function sorts the UQ data into dataframes for plotting with the hdf_to_scatter tool."""
-    #     if variables_to_plot is None:
-    #         variables_to_plot = self.converged_df.columns.tolist()
-    #         variables_to_plot.remove("run_id")
-    #         variables_to_plot.remove("ifail")
-    #         variables_to_plot.remove("sqsumsq")
-    #         print("Plotting all variables found in UQ dataframe.")
-    #         print(variables_to_plot)
-    #         self.plot_converged_df = self.converged_df[variables_to_plot]
-    #         self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
-    #     else:
-    #         print("Ploting user named parameters.")
-    #         self.plot_converged_df = self.converged_df[variables_to_plot]
-    #         self.plot_unconverged_df = self.unconverged_df[variables_to_plot]
 
     def filter_dataframe(self, dataframe, variables):
         """Filter a dataframe for given variables.
@@ -285,7 +270,7 @@ class UncertaintyData:
         show(p)
         if export_image:
             # Use the default directory of the script
-            filename = self.image_export_path + "/crsa_plot.png"
+            filename = self.image_export_path + "/" + title + "_plot.png"
             export_png(p, filename=filename)
 
     def convergence_study(self, n, sampled_variables, process_output):
@@ -570,21 +555,34 @@ class UncertaintyData:
         )
 
         # Plot the results
-        fig, ax = plt.subplots()
+        p = figure(
+            x_axis_label=figure_of_merit,
+            y_axis_label="Regional Influence Index",
+            title="Regional Sensitivity Analysis",
+        )
+
+        colors = Category10[10] * (len(rsa_res_df.columns) // 10 + 1)
         # Find the max RSA index, discard variables which are never above confidence level
         max_rsa = rsa_res_df.max()
         filtered_max_rsa = max_rsa[max_rsa > confidence_level]
         filtered_max_rsa = filtered_max_rsa.sort_values(ascending=False)
-        rsa_res_df[filtered_max_rsa.index].plot(
-            ylabel="Regional Influence Index", xlabel=figure_of_merit, ax=ax
+        legends = []
+        for i, column in enumerate(rsa_res_df.columns):
+            if column in filtered_max_rsa.index:
+                line = p.line(
+                    rsa_res_df.index,
+                    rsa_res_df[column],
+                    line_width=5,
+                    color=colors[i],
+                )
+                legends.append((column, [line]))
+
+        legend = Legend(
+            items=legends, orientation="vertical", location="center", label_standoff=8
         )
-        ax.legend(
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.12),
-            fancybox=True,
-            shadow=True,
-            ncol=5,
-        )
+        p.add_layout(legend, "right")
+
+        show(p)
 
         return filtered_max_rsa
 
@@ -665,70 +663,6 @@ class UncertaintyData:
         p.legend.click_policy = "hide"
 
         show(p)
-
-    # def ecdf_plot(self, figure_of_merit):
-    #     """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
-    #     Additionally, plot the convergence rate and the design point value.
-
-    #     :param figure_of_merit: Parameter to investigate
-    #     :type figure_of_merit: str
-    #     """
-    #     fig, ax1 = plt.subplots(1)
-    #     plt.rcParams["axes.xmargin"] = 0
-    #     plt.rcParams["axes.ymargin"] = 0
-    #     ax2 = ax1.twinx()
-    #     plt.style.library["tableau-colorblind10"]
-    #     # Arrange the data into df
-    #     converged_fom_df = self.converged_df[figure_of_merit].to_numpy()
-    #     uq_fom_df = self.uncertainties_df[figure_of_merit].to_numpy()
-    #     # Calculate cumulative distribution functions
-    #     ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
-    #     ecdf_conv = sm.distributions.ECDF(converged_fom_df)
-    #     # Bin the data
-    #     x = np.linspace(min(uq_fom_df), max(uq_fom_df))
-    #     ri_t = []
-    #     y_unconv = ecdf_unconv(x)
-    #     y_conv = ecdf_conv(x)
-    #     # Plot the ecdf functions
-    #     ax1.step(x, y_unconv, color="tab:red", label="Unconverged samples")
-    #     ax1.step(x, y_conv, color="tab:blue", label="Converged samples")
-    #     ax1.set_ylabel("Percentage of Samples", fontsize=20)
-    #     ax1.set_xlabel(process_variable_dict[figure_of_merit], fontsize=20)
-    #     # Calculate rate of convergence for bins in x
-    #     for d in range(len(x) - 1):
-    #         n_c = len(
-    #             self.converged_df[
-    #                 self.converged_df[figure_of_merit].between(x[d], x[d + 1])
-    #             ].index
-    #         )
-    #         n_t = len(
-    #             self.uncertainties_df[
-    #                 self.uncertainties_df[figure_of_merit].between(x[d], x[d + 1])
-    #             ].index
-    #         )
-    #         if n_t == 0:
-    #             n_t = 0.0000001
-    #         ri = n_c / n_t
-    #         ri_t.append(ri)
-    #     # Finds the edges of bins (must be a better way to do this section)
-    #     h, edges = np.histogram(ri_t, bins=x)
-    #     # Plot convergence rate
-    #     ax1.stairs(ri_t, edges, color="tab:orange", label="Convergence rate")
-    #     ax2.set_ylabel("Convergence Rate", fontsize=20)
-    #     # Plot design point
-    #     ypoint = 0.5
-    #     if figure_of_merit == "kappa":
-    #         ypoint = 1.0
-    #     # copy curve line y coords and set to a constant
-    #     lines = y_unconv.copy()
-    #     lines[:] = ypoint
-
-    #     # get intersection
-    #     first_line = LineString(np.column_stack((x, y_unconv)))
-    #     second_line = LineString(np.column_stack((x, lines)))
-    #     intersection = first_line.intersection(second_line)
-    #     ax1.legend()
-    #     ax1.grid(axis="both")
 
 
 def unique_cols(df):
