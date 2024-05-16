@@ -40,7 +40,7 @@ import warnings
 from uncertainty_data import UncertaintyData, process_variable_dict
 
 
-class ConfidenceAnalysis:
+class UncertaintyOptimisation:
     """A tool for plotting UQ data for analysis. This class performs an interval
     analysis. It can calcualte the `confidence` of each interval for each parameter
     and plot this in a grid. Then you can also plot a data table to find the most confident
@@ -57,7 +57,7 @@ class ConfidenceAnalysis:
         custom_data_point=None,
     ):
         """
-        Initialize the ConfidenceAnalysis instance.
+        Initialize the UncertaintyOptimisation instance.
 
         Parameters:
         - uq_data: UQ data for analysis.
@@ -868,16 +868,16 @@ class ConfidenceAnalysis:
                 title="Interval Width",
                 formatter=general_formatter,
             ),
-            TableColumn(
-                field="jointerval_input_probability",
-                title="Design Confidence",
-                formatter=general_formatter,
-            ),
-            TableColumn(
-                field="jointerval_max_confidence",
-                title="Optimised Confidence",
-                formatter=general_formatter,
-            ),
+            # TableColumn(
+            #     field="jointerval_input_probability",
+            #     title="Design Confidence",
+            #     formatter=general_formatter,
+            # ),
+            # TableColumn(
+            #     field="jointerval_max_confidence",
+            #     title="Optimised Confidence",
+            #     formatter=general_formatter,
+            # ),
         ]
         if self.custom_data_point is not None:
             columns.insert(
