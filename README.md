@@ -68,4 +68,6 @@ It is only possible to achieve a robust and reliable design by considering varia
 
 Stochastic methods were developed in this work enable new understanding of the EU DEMO design by first investigating the failure rate of design subject to uncertainty, and then locating the optimal regions of parameter space.
 
+The optimisation tool analyses the design space to confidently predict regions which will improve reliability and robustness. These bounds can be updated to inform the next round of Monte Carlo experiments and reassess the design space.
+
 ![uqoptimisation](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/uncertaintyoptimisation.png)
