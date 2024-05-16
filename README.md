@@ -1,122 +1,51 @@
 # Read Me
 
-## Table of Contents
+## Demonstration of UQ tool suite
 
-1. [UncertaintyData Class Documentation](#uncertaintydata-class-documentation)
-   - [Key Components](#key-components)
-     - [Initialization](#initialization)
-     - [Data Handling](#data-handling)
-     - [Convergence Analysis](#convergence-analysis)
-     - [Sampled Variables and Figures of Merit](#sampled-variables-and-figures-of-merit)
-   - [Methods](#methods)
-   - [Additional Features](#additional-features)
-2. [ConfidenceAnalysis Class Documentation](#introduction)
-    - [Class Overview](#class-overview)
-    - [Methods](#methods)
-      - [Parameter Validation](#parameter-validation)
-      - [Attribute Initialization](#attribute-initialization)
-      - [Interval Probability Calculation](#interval-probability-calculation)
-      - [Optimization and Data Preparation](#optimization-and-data-preparation)
-      - [Additional Methods](#additional-methods)
-    - [Usage](#usage)
-    - [Examples](#examples)
+These tools have been developed to analyse the output of PROCESS Monte Carlo runs, but can analyse data from any software and source if it can be presented in a np.DataFrame format.
 
-## UncertaintyData Class Documentation
-![alt text](<https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/Input%20Parameters%20Influencing%20Convergence_plot.png>)
-The `UncertaintyData` class is designed for collecting and analyzing output data from an `evaluate_uncertainties.py` tool. It merges HDF files containing uncertainty data, cleans, analyzes, and plots the data. Below, we’ll explore the key components and methods of this class.
+There is a suite of tools design to perform sensitivity analyses (SA), uncertainty quantification (UQ)
 
-### Key Components
+### Perform Regional Sensitivity Analysis
+This looks for variables which cause convergence, caclulates a relative index for the most significance. 
 
-#### Initialization
+In this example use-cases will be demonstrated.
 
-The constructor (`__init__`) takes the following parameters:
+![convergrence_sensitivity](<https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/Input%20Parameters%20Influencing%20Convergence_plot.png>)
 
-- `path_to_uq_data_folder`: Path to the folder containing uncertainty data.
-- `figure_of_merit`: A metric used for analysis (e.g., performance, cost, etc.).
-- `input_parameters`: A list of input parameter names.
+### Calculate sensitivity for a given figure of merit
+In this case, find the sensitivity towards the major radius, "rmajor". 
 
-#### Data Handling
+Uses rbd_fast method from Salib library. Higher number means more sensitivity.
 
-- The class merges HDF files containing uncertainty data.
-- Columns with the same value in every row are removed.
-- The `sqsumsq` column is transformed using the natural logarithm.
-- The input parameter names are stored in `self.input_names`.
+Then filter for sensitivity above a given number.
 
-#### Convergence Analysis
+![rmajor_sobol](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/Sobol%20Indices%20for%20Major%20Radius_plot.png)
 
-- The class identifies converged and unconverged runs based on an `ifail` column.
-- If no failed runs are found, it assumes all runs are converged.
+## Create a scatter plot of the results
 
-#### Sampled Variables and Figures of Merit
+- This creates a histogram color map of converged solutions (hist=True) and a scatter plot (scatter=True). 
+- This can be used for visual identification of relationships, if there is a linear slant to the data it indicates a relationship exists
+- Red on the color map indicates that more points fall in this region.
+- You can plot an individual graph with "scatter" and a grid of scatter plots with "scatter_grid".
 
-- Sampled variables for plotting are stored in `self.sampled_vars_to_plot`.
-- The significance level (default 0.05) is used for plotting.
-- The number of converged and unconverged runs is tracked.
+ ![scatter_plot](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/tbrnmnrmajor-plot.png)
+ ![scatter_grid](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/scatter_gird.png)
 
-### Methods
+## Create CDF plots
+Plot the CDF of converged and unconverged samples, as well as the convergence rate for a given sampled parameter.
 
-- `estimate_design_values(self, variables)`: Calculates mean values of sampled parameters as initial guesses. Assumes a uniform distribution for the parameters.
-- `configure_data_for_plotting(self)`: Organizes UQ data into dataframes suitable for plotting. Plots either all sampled parameters or user-named parameters.
-- `calculate_sensitivity(self, figure_of_merit)`: Computes sensitivity indices for converged UQ runs using the Salib `rbd_fast` method.
-- `plot_rbd_si_indices(self)`: Calculates RBD FAST Sobol Indices and creates a plot. Displays sensitivity indices (S1) for different parameters related to fusion power.
+If there is a difference between the red and blue lines, this indicates that converged runs are coming from a different selection of input parameters to unconverged solutions (ie the figure of merit is sensitive to convergence).
 
-### Additional Features
+As an example, compare the aspect ratio to the number of cycles in the CS coil.
 
-The class provides methods for regional sensitivity analysis, HDMR analysis, and ECDF plots.
+![aspect_ecdf](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/aspect-ecdf-plot.png)
+![n_cycle_ecdf](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/n_cycle_min-ecdf-plot.png)
 
-## ConfidenceAnalysis Class Documentation
+## Regional Sensitivity Analysis 
 
-The `ConfidenceAnalysis` class is designed to perform interval analysis on uncertainty quantification (UQ) and Copula data. It calculates confidence intervals, optimizes configurations, and prepares data for plotting. This documentation provides an overview of the class, its methods, and usage guidelines.
+We can investigate regional relationships between variables. For example, when the major radius is small, different things may be compromised to achieve a solution when then the major radius is large.
 
-## Introduction
+In this example, to achieve a high burn time the major radius must change from the typical size required for a lower burn time.
 
-The `ConfidenceAnalysis` class is part of a larger UQ and Copula analysis framework. It aims to provide insights into the confidence intervals of uncertain parameters and optimize configurations based on interval probabilities. By using this class, you can enhance your understanding of the uncertainty associated with your system.
-
-## Class Overview
-
-- **Class Name**: ConfidenceAnalysis
-- **Purpose**: Interval analysis for UQ and Copula data
-- **Attributes**:
-  - `number_intervals`: Number of intervals for probability calculations
-  - `weight_confidence`: Weighting factor favoring high confidence
-  - `weight_overlap`: Weighting factor favoring no error overlap
-  - `uq_data`: Uncertainty data for analysis
-  - `input_names`: List of input variable names
-  - `converged_data`: Converged data (real or synthetic)
-  - `custom_data_point`: Custom data point for analysis
-  - ... (other relevant attributes)
-
-## Methods
-
-### Parameter Validation
-
-- `__init__(self, uq_data, input_names, ...)`: Initializes the class instance, validates input parameters, and sets attributes.
-
-### Attribute Initialization
-
-- `_sort_converged_data_by_variable(self, variable)`: Sorts the converged data by the specified variable.
-- `_get_design_range_and_value(self, variable)`: Determines the design range and value for the given variable.
-
-### Interval Probability Calculation
-
-- `calculate_variable_probabilities(self, variable, number_intervals)`: Finds intervals in uncertain space with the highest rate of convergence. Calculates interval probabilities and confidence.
-
-### Optimization and Data Preparation
-
-- `modify_data(self, variable_data)`: Converts variable data into a format suitable for plotting graphs and tables. Computes joint probabilities and additional statistics.
-
-### Additional Methods
-
-- `_add_interval_column(self, dataframe, variable, design_range_intervals)`: Adds an interval column to the given DataFrame.
-- `_calculate_metric(self, confidences, errors, weight_confidence, weight_overlap)`: Calculates a metric to evaluate the number of intervals.
-- ... (other relevant methods)
-
-## Usage
-
-1. Instantiate the `ConfidenceAnalysis` class with appropriate parameters.
-2. Call relevant methods to perform interval analysis and prepare data.
-3. Visualize results using plots, tables, or other tools.
-
-## Examples
-
-Check the `examples` folder for a notebook implementation.
+![rsatbrnmn](https://github.com/ym1906/uq-sa-fusion-design/blob/main/examples/plots/tbrnmn-rsa-plot.png)
