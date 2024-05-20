@@ -425,7 +425,26 @@ class UncertaintyData:
         bins=10,
         export_image=False,
     ):
-        p = figure(title="Scatter Plot Comparison")
+        """Create a scatter plot for two variables.
+        Also calculates a 2D histogram to plot the density of points on the x-y axis.
+        Options to turn off histogram or scatter points.
+
+        :param data: Dataframe containing variable data
+        :type data: pd.dataframe
+        :param x_variable: x-axis variable
+        :type x_variable: str
+        :param y_variable: y-axis variable
+        :type y_variable: str
+        :param scatter: plot scattered points, defaults to True
+        :type scatter: bool, optional
+        :param hist: plot 2D histogram (density of points), defaults to True
+        :type hist: bool, optional
+        :param bins: Number of bins for 2D histogram, defaults to 10
+        :type bins: int, optional
+        :param export_image: Save the image, defaults to False
+        :type export_image: bool, optional
+        """
+        p = figure(title="Scatter Plot Comparison: " + x_variable + "v" + y_variable)
 
         # Extract data
         x = data[x_variable]
@@ -473,6 +492,23 @@ class UncertaintyData:
         height_width=250,
         export_image=False,
     ):
+        """Create a scatter grid.
+
+        :param data: dataframe containing UQ data
+        :type data: pd.dataframe
+        :param variables: variables to plot
+        :type variables: list
+        :param bins: number of bins in 2D histogram, defaults to 10
+        :type bins: int, optional
+        :param scatter: Plot scattered points, defaults to True
+        :type scatter: bool, optional
+        :param hist: Plot 2D histogram, defaults to True
+        :type hist: bool, optional
+        :param height_width: Specify the height and width of plot in px, defaults to 250
+        :type height_width: int, optional
+        :param export_image: Save the image, defaults to False
+        :type export_image: bool, optional
+        """
         # Create a grid of scatter plots
         plots = []
         for i, var1 in enumerate(variables):
