@@ -28,22 +28,23 @@ class UncertaintyData:
         self.image_export_path = path_to_uq_data_folder
 
     def load_data(self):
+        """Search for HDF files and merge them.
+        Remove columns for which all the data is the same (causes errors in analysis).
+        """
         self.uncertainties_df = merge_hdf_files(self.path_in)
         # Remove columns which have the same value in every row.
-        self.unique_array = unique_cols(self.uncertainties_df)
-        self.uncertainties_df = self.uncertainties_df.loc[:, ~self.unique_array]
+        unique_array = unique_cols(self.uncertainties_df)
+        self.uncertainties_df = self.uncertainties_df.loc[:, ~unique_array]
         self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
 
     def process_data(self):
+        """Process the data, find the number of sampled vars and clean the uncertainties dataframe."""
         self.number_sampled_vars = len(self.sampled_variables)
-        self.problem = {
-            "num_vars": self.number_sampled_vars,
-            "names": self.sampled_variables,
-        }
         # Drop the unnecessary levels from the columns
         self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
 
     def separate_converged_unconverged(self):
+        """Create separate dataframes for converged and unconverged sample points."""
         try:
             self.converged_df = self.uncertainties_df[
                 self.uncertainties_df["ifail"] == 1.0
@@ -77,6 +78,7 @@ class UncertaintyData:
         self.separate_converged_unconverged()
 
     def initialize_plotting(self):
+        """Sort data for plotting. Note: note sure if this function is still used."""
         self.converged_sampled_vars_df = self.converged_df[self.sampled_variables]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.sampled_variables]
         # index values insignificant, 0.05 by default - subjective.
@@ -92,18 +94,27 @@ class UncertaintyData:
         return mean_values_df
 
     def filter_dataframe(self, dataframe, variables):
-        """Filter a dataframe for given variables.
+        """Filter a dataframe for a given variable.
 
-        :param variables: Figures of merit
-        :type fom: str
-        :return: Converged FOM DataFrame
-        :rtype: pandas.Series
+        :param dataframe: Dataframe containing UQ data.
+        :type dataframe: pd.dataframe
+        :param variables: Variable to filter for.
+        :type variables: Str
+        :return: Dataframe filtered by variable
+        :rtype: pd.dataframe
         """
         return dataframe[variables]
 
     def calculate_sensitivity(self, figure_of_merit, sampled_variables):
         """Calculate the sensitivity indices for a set of converged UQ runs.
         Uses the Salib rbd_fast analysis method.
+
+        :param figure_of_merit: Figure of merit for sensitivity calculation.
+        :type figure_of_merit: Str
+        :param sampled_variables: Variables to calculate sensitivity for.
+        :type sampled_variables: list
+        :return: sampled variables, sensitivity indices, error on indices
+        :rtype: list, pd.series, pd.series
         """
         converged_figure_of_merit_df = self.filter_dataframe(
             self.converged_df, figure_of_merit
@@ -146,8 +157,8 @@ class UncertaintyData:
         """Find the input parameters with a value above the significance level.
         self.convergence_rsa_result = pd.DataFrame()
 
-        :return: _description_
-        :rtype: _type_
+        :return: Significant parameters
+        :rtype: list
         """
         significant_df = self.convergence_rsa_result[
             self.convergence_rsa_result["converged"].ge(self.significance_level)
@@ -187,7 +198,13 @@ class UncertaintyData:
             self.failure_cov = 0.0
 
     def plot_sobol_indices(self, figure_of_merit, significance_level=None):
-        """Calculate RBD FAST Sobol Indices and plot"""
+        """Calculate RBD FAST Sobol Indices for a figure of merit and plot the results.
+
+        :param figure_of_merit: Figure of merit to target
+        :type figure_of_merit: str
+        :param significance_level: Value above which indices are considered significant, defaults to None
+        :type significance_level: float, optional
+        """
         significance_level = significance_level or 0.05
         fig, ax = plt.subplots(1)
         # fig.set_size_inches(18, 5)
@@ -220,6 +237,19 @@ class UncertaintyData:
     def plot_sensitivity(
         self, indices, names, export_image=False, significance_level=None, title=None
     ):
+        """Plot the results of a sensitivity analysis.
+
+        :param indices: Sensitivity index values.
+        :type indices: pd.series
+        :param names: Names of variables in the analysis.
+        :type names: list
+        :param export_image: Option to save the image, defaults to False
+        :type export_image: bool, optional
+        :param significance_level: Specify a significance level to plot on graph, defaults to None
+        :type significance_level: float, optional
+        :param title: Include a title on the graph, defaults to None
+        :type title: str, optional
+        """
 
         significance_level = significance_level or 0.05
 
