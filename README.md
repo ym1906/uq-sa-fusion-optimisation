@@ -1,3 +1,5 @@
+![cover_image](https://github.com/ym1906/uq-sa-fusion-optimisation/blob/main/examples/plots/uq_design_fusion.jpeg)
+
 # Read Me
 
 This repository contains a suite of tools to perform SA and UQ analysis, with a view towards optimising the robustness and reliability of a nuclear fusion power plant design.
