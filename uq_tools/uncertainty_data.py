@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 from SALib.analyze import rbd_fast, rsa
 import statsmodels.api as sm
 import numpy as np
@@ -9,58 +10,110 @@ from shapely.geometry import LineString
 from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot, row
 from bokeh.io import export_svgs, export_png, export_svg
-from bokeh.models import ColumnDataSource, Range1d, Legend
+from bokeh.models import ColumnDataSource, Range1d, Legend, MathText
 from bokeh.palettes import Category10
 
-
 class UncertaintyData:
-    """The tool looks for hdf files containing uncertainty data, merges them,
-    and has functions to clean, analyse, and plot the data.
+    """The tool looks for HDF files containing uncertainty data, merges them,
+    and has functions to clean, analyze, and plot the data.
     """
 
     def __init__(
         self,
-        path_to_uq_data_folder,
+        data_source,
         sampled_variables,
     ):
-        self.path_in = path_to_uq_data_folder
+        """
+        Initializes the UncertaintyData object.
+
+        Args:
+            data_source (str or pd.DataFrame): Either a path to the folder containing uncertainty data
+                                               or a preloaded pandas DataFrame.
+            sampled_variables (list): The list of sampled variables to work with.
+        """
+        if isinstance(data_source, str):
+            # If the data source is a string, treat it as a path to the data folder
+            if os.path.isdir(data_source):
+                self.path_in = data_source
+                self.data_frame = None  # Will be loaded later
+            else:
+                raise ValueError(f"The provided path {data_source} does not exist.")
+        elif isinstance(data_source, pd.DataFrame):
+            # If a dataframe is provided, use it directly
+            self.data_frame = data_source
+            self.path_in = None  # No path needed when dataframe is directly passed
+        else:
+            raise TypeError("data_source must be either a valid path to a folder or a pandas DataFrame.")
+
         self.sampled_variables = sampled_variables
-        self.image_export_path = path_to_uq_data_folder
+        self.image_export_path = self.path_in if self.path_in else "."
 
     def load_data(self):
-        """Search for HDF files and merge them.
-        Remove columns for which all the data is the same (causes errors in analysis).
         """
-        self.uncertainties_df = merge_hdf_files(self.path_in)
-        # Remove columns which have the same value in every row.
-        unique_array = unique_cols(self.uncertainties_df)
+        Loads data from the folder (if applicable) or uses the preloaded DataFrame.
+        Search for HDF files and merge them if loading from a folder.
+        """
+        if self.data_frame is not None:
+            print("Using the preloaded DataFrame.")
+            self.uncertainties_df = self.data_frame
+        elif self.path_in is not None:
+            # Load and merge data from HDF files in the folder
+            print(f"Loading data from folder: {self.path_in}")
+            self.uncertainties_df = self._load_h5_files()
+
+        # Remove columns which have the same value in every row
+        unique_array = self._unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~unique_array]
-        self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+
+        # Transformations on specific columns
+        if "sqsumsq" in self.uncertainties_df.columns:
+            self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+
+    def _load_h5_files(self):
+        """
+        Loads and merges all HDF files from the folder.
+        """
+        all_data = []
+        for file_name in os.listdir(self.path_in):
+            if file_name.endswith('.h5'):
+                file_path = os.path.join(self.path_in, file_name)
+                df = pd.read_h5(file_path)
+                all_data.append(df)
+        
+        if all_data:
+            return pd.concat(all_data, ignore_index=True)
+        else:
+            raise FileNotFoundError("No HDF files found in the specified folder.")
+
+    def _unique_cols(self, df):
+        """
+        Returns a boolean array indicating which columns have only unique values.
+
+        Args:
+            df (pd.DataFrame): The dataframe to check.
+
+        Returns:
+            np.array: Boolean array, True if the column has a single unique value across all rows.
+        """
+        return df.apply(lambda x: x.nunique() == 1)
 
     def process_data(self):
-        """Process the data, find the number of sampled vars and clean the uncertainties dataframe."""
+        """Process the data, find the number of sampled variables, and clean the uncertainties dataframe."""
         self.number_sampled_vars = len(self.sampled_variables)
-        # Drop the unnecessary levels from the columns
-        self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
+        # Drop the unnecessary levels from the columns if applicable
+        if isinstance(self.uncertainties_df.columns, pd.MultiIndex):
+            self.uncertainties_df.columns = self.uncertainties_df.columns.droplevel(1)
 
     def separate_converged_unconverged(self):
         """Create separate dataframes for converged and unconverged sample points."""
         try:
-            self.converged_df = self.uncertainties_df[
-                self.uncertainties_df["ifail"] == 1.0
-            ]
-            self.unconverged_df = self.uncertainties_df[
-                self.uncertainties_df["ifail"] != 1.0
-            ]
+            self.converged_df = self.uncertainties_df[self.uncertainties_df["ifail"] == 1.0]
+            self.unconverged_df = self.uncertainties_df[self.uncertainties_df["ifail"] != 1.0]
         except KeyError as e:
-            # Exception to handle the case where there are no failed runs.
+            # Handle the case where "ifail" doesn't exist or there are no failed runs
             print(f"KeyError: {e}")
             self.converged_df = self.uncertainties_df
-            self.unconverged_df = pd.DataFrame(
-                data=None,
-                columns=self.converged_df.columns,
-                index=self.converged_df.index,
-            )
+            self.unconverged_df = pd.DataFrame(data=None, columns=self.converged_df.columns, index=self.converged_df.index)
 
     def set_image_export_path(self, path):
         """
@@ -72,18 +125,18 @@ class UncertaintyData:
         self.image_export_path = path
 
     def initialize_data(self):
-        """Runs data processing functions in sequence."""
+        """Runs data loading, processing, and separation of converged/unconverged in sequence."""
         self.load_data()
         self.process_data()
         self.separate_converged_unconverged()
 
     def initialize_plotting(self):
-        """Sort data for plotting. Note: note sure if this function is still used."""
+        """Prepare the data for plotting."""
         self.converged_sampled_vars_df = self.converged_df[self.sampled_variables]
         self.unconverged_sampled_vars_df = self.unconverged_df[self.sampled_variables]
-        # index values insignificant, 0.05 by default - subjective.
+        # Count converged and unconverged runs
         self.number_of_converged_runs = len(self.converged_df.index)
-        self.number_of_unconverged_runs = len(self.unconverged_df)
+        self.number_of_unconverged_runs = len(self.unconverged_df.index)
 
     def estimate_design_values(uq_dataframe, variables):
         """Find the mean values of sampled parameters as a guess of input initial value
@@ -288,7 +341,7 @@ class UncertaintyData:
             fill_color="blue",
             line_color="white",
             legend_label="Significance Index",
-            alpha=0.7,
+            alpha=0.5,
         )
 
         # Customize the plot
@@ -300,8 +353,10 @@ class UncertaintyData:
         show(p)
         if export_image:
             # Use the default directory of the script
-            filename = self.image_export_path + "/" + title + "_plot.png"
-            export_png(p, filename=filename)
+            filename = self.image_export_path + "/" + title + "_plot.svg"
+            p.output_backend = "svg"
+            export_svg(p, filename=filename)
+
 
     def convergence_study(self, n, sampled_variables, process_output):
         """This function is used to calculate RBD FAST sensitivities indices for a subset.
@@ -758,19 +813,19 @@ def unique_cols(df):
     return (a[0] == a).all(0)
 
 
-def merge_hdf_files(path_to_hdf):
-    """Looks for uncertainty hdf files in the working folder and merges them into a
+def merge_h5_files(path_to_h5):
+    """Looks for uncertainty h5 files in the working folder and merges them into a
     single dataframe for analysis.
 
     :return: Uncertainties DataFrame, Parameters DataFrame
     :rtype: pandas.DataFrame, pandas.Dataframe
     """
     list_uncertainties_dfs = []
-    for root, dirs, files in os.walk(path_to_hdf):
+    for root, dirs, files in os.walk(path_to_h5):
         for file in files:
-            pos_hdf = root + os.sep + file
-            if pos_hdf.endswith(".h5") and "uncertainties_data" in pos_hdf:
-                extra_uncertainties_df = pd.read_hdf(pos_hdf)
+            pos_h5 = root + os.sep + file
+            if pos_h5.endswith(".h5") and "uncertainties_data" in pos_h5:
+                extra_uncertainties_df = pd.read_h5(pos_h5)
                 list_uncertainties_dfs.append(extra_uncertainties_df)
     return pd.concat(list_uncertainties_dfs)
 
@@ -829,6 +884,16 @@ process_variable_dict = {
     "powfmw": "Fusion Power (MW)",
 }
 
+
+def replace_variable_names(variable_list, process_variable_dict, trim_units=False):
+    descriptions = []
+    for var in variable_list:
+        desc = process_variable_dict.get(var, var)
+        if trim_units:
+            # Remove anything within parentheses
+            desc = re.sub(r'\s*\(.*?\)', '', desc)
+        descriptions.append(desc)
+    return descriptions
 
 def read_json(file):
     """Read and print a json file.
