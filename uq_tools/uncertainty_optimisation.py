@@ -54,7 +54,7 @@ class UncertaintyOptimisation:
         number_intervals=2,
         weight_confidence=1.0,
         weight_overlap=0.5,
-        custom_data_point=None,
+        custom_data_range=None,
     ):
         """
         Initialize the UncertaintyOptimisation instance.
@@ -63,7 +63,7 @@ class UncertaintyOptimisation:
         - uq_data: UQ data for analysis.
         - copula: Copula instance for modeling dependencies.
         - number_intervals: Number of intervals for probability calculations.
-        - custom_data_point: Custom data point for analysis.
+        - custom_data_range: Custom data point for analysis.
         """
 
         # 1. Parameter Validation
@@ -81,10 +81,15 @@ class UncertaintyOptimisation:
         self.plot_height_width = 275  # height and width of plots.
         # Here you could switch between real and synthetic data. In general, use the real data
         # but synthetic may be useful if convergence is low.
-        self.converged_data = (
-            self.uq_data.converged_df
-        )  # self.uq_data.converged_df  # self.copula.synthetic_data  #
-        self.custom_data_point = custom_data_point
+        self.uncertainties_df=self.uq_data.uncertainties_df
+        self.converged_data=self.uq_data.converged_df    
+        self.custom_data_range = custom_data_range
+        if self.custom_data_range is not None:
+              for variable_name, bounds in self.custom_data_range.items():
+                lower_bound = bounds.get('lower_bound')
+                upper_bound = bounds.get('upper_bound')
+                self.uncertainties_df = filter_dataframe_between_ranges(self.uncertainties_df, variable_name, lower_bound,upper_bound)
+                self.converged_data = filter_dataframe_between_ranges(self.converged_data, variable_name, lower_bound,upper_bound)
         self.probability_df = pd.DataFrame()
 
     def run(self):
@@ -93,7 +98,7 @@ class UncertaintyOptimisation:
         for variable in self.input_names:
             best_metric = float("-inf")
             best_config = None
-            max_number_intervals = round(np.sqrt(len(self.uq_data.converged_df)))
+            max_number_intervals = round(np.sqrt(len(self.converged_data)))
             # Square root of number of samples is a general method to estimate the max number of intervals.
             for number_intervals in range(
                 1,
@@ -188,18 +193,19 @@ class UncertaintyOptimisation:
         # need to rework this slightly for using synthetic data separately todo.
         if variable in self.uq_data.sampled_variables:
             design_range_start, design_range_end, design_mean, design_variance = (
-                self.uq_data.uncertainties_df[variable].min(),
-                self.uq_data.uncertainties_df[variable].max(),
-                self.uq_data.uncertainties_df[variable].mean(),
-                self.uq_data.uncertainties_df[variable].var(),
+                self.converged_data[variable].min(),
+                self.converged_data[variable].max(),
+                self.converged_data[variable].mean(),
+                self.converged_data[variable].var(),
             )
         else:
             design_range_start, design_range_end, design_mean, design_variance = (
-                self.uq_data.converged_df[variable].min(),
-                self.uq_data.converged_df[variable].max(),
-                self.uq_data.converged_df[variable].mean(),
-                self.uq_data.converged_df[variable].var(),
+                self.converged_data[variable].min(),
+                self.converged_data[variable].max(),
+                self.converged_data[variable].mean(),
+                self.converged_data[variable].var(),
             )
+            # print(variable,self.converged_data[variable].var())
         return design_range_start, design_range_end, design_mean, design_variance
 
     def _add_interval_column(self, dataframe, variable: str, design_range_intervals):
@@ -228,7 +234,7 @@ class UncertaintyOptimisation:
         # Probability is being calculated as number of converged samples/number of uncertain points.
         converged_intervals = (
             self.converged_data.groupby(variable + "_interval")[variable].count()
-            / len(self.uq_data.uncertainties_df)
+            / len(self.uncertainties_df)
             # * (1.0 - self.uq_data.failure_probability)
             # Above line modifies the probability to account for the fact that we are looking at converged samples.
         )
@@ -315,14 +321,14 @@ class UncertaintyOptimisation:
         # Map values to intervals with "right" set to False
         interval_uncertainties_df = pd.DataFrame()
         interval_uncertainties_df["intervals"] = pd.cut(
-            self.uq_data.uncertainties_df[variable],
+            self.uncertainties_df[variable],
             bins=design_range_bins,
             right=False,
         )
         # This is the number sampled, (includes unconverged samples)
         interval_converged_df = pd.DataFrame()
         interval_converged_df["intervals"] = pd.cut(
-            self.uq_data.converged_df[variable],
+            self.converged_data[variable],
             bins=design_range_bins,
             right=False,
         )
@@ -373,46 +379,33 @@ class UncertaintyOptimisation:
         max_confidence = interval_confidence.max()
         max_confidence_index = interval_confidence.argmax()
         max_confidence_design_interval = design_range_intervals[max_confidence_index]
-        # Check if a custom_data_point is provided
-        if self.custom_data_point is not None:
-            if variable in self.custom_data_point.keys():
-                custom_data_point_interval_index = (
-                    np.digitize(
-                        self.custom_data_point[variable], design_range_intervals
-                    )
-                    - 1
-                )
-                custom_data_point_interval_probability = interval_confidence[
-                    custom_data_point_interval_index
-                ]
-                custom_data_point_interval_value = self.custom_data_point[variable]
-            else:
-                custom_data_point_interval_value = None
-                custom_data_point_interval_index = None
-                custom_data_point_interval_probability = None
-        else:
-            custom_data_point_interval_value = None
-            custom_data_point_interval_index = None
-            custom_data_point_interval_probability = None
-        # Find variable description in dict
         description = self.find_description(variable)
 
-        design_range_mean = self.calculate_mean(
-            design_range_intervals + (0.5 * interval_width), interval_counts
-        )
-        design_range_variance = self.calculate_variance(
-            design_range_intervals + (0.5 * interval_width),
-            interval_counts,
-            design_range_mean,
-        )
+        # design_range_mean = self.calculate_mean(
+        #     design_range_intervals + (0.5 * interval_width), interval_counts
+        # )
+        # design_range_variance = self.calculate_variance(
+        #     design_range_intervals + (0.5 * interval_width),
+        #     interval_counts,
+        #     design_range_mean,
+        # )
+
+        # if variable in self.uq_data.sampled_variables:
+        #     design_range_variance = self.uncertainties_df[variable].var()
+        #     design_range_mean = self.uncertainties_df[variable].mean()
+        # else:
+        #     design_range_variance = self.converged_data[variable].var()
+        #     design_range_mean = self.converged_data[variable].mean()
+
+            
         # Create variable dataclass and store it
         variable_data = uncertain_variable_data(
             name=variable,
             description=description,
             design_range_start=design_range_start,
             design_range_end=design_range_end,
-            design_mean=design_range_mean,
-            design_variance=design_range_variance,
+            design_mean=design_mean,
+            design_variance=design_variance,
             design_range_intervals=design_range_intervals,
             number_of_intervals=len(design_range_intervals),
             interval_probability=interval_probability,
@@ -428,9 +421,6 @@ class UncertaintyOptimisation:
             design_mean_index=design_mean_index,
             max_confidence_index=max_confidence_index,
             interval_width=interval_width,
-            custom_data_point=custom_data_point_interval_value,
-            custom_data_point_interval_index=custom_data_point_interval_index,
-            custom_data_point_interval_probability=custom_data_point_interval_probability,
         )
 
         self.variable_data[variable] = variable_data
@@ -454,50 +444,6 @@ class UncertaintyOptimisation:
         max_confidence_filtered_df = self._filter_dataframe_by_index(
             self.converged_data, data, "max_confidence_index", self.input_names
         )
-
-        def modify_row(row):
-            row["custom_data_point_interval_index"] = np.digitize(
-                row["custom_data_point_interval_mean"], row["design_range_intervals"]
-            )
-
-            if row["custom_data_point_interval_index"] < len(
-                row["interval_confidence"]
-            ):
-                row["custom_data_point_interval_probability"] = row[
-                    "interval_confidence"
-                ][row["custom_data_point_interval_index"]]
-            else:
-                # Handle the case where the index is out of bounds
-                row["custom_data_point_interval_probability"] = np.nan
-
-            row["custom_data_point_interval_value"] = row["custom_data_point"]
-
-            return row
-
-        # Custom point calculations
-        if self.custom_data_point is not None:
-            # Filter the data by the given custom points. Note: if a custom point is not
-            # given for each input variable the probability can't be directly compared to
-            # design or optimised probability (probability will be greater the fewer points
-            # provided)
-            custom_filtered_df = self._filter_dataframe_by_index(
-                self.converged_data,
-                data,
-                "custom_data_point_interval_index",
-                self.custom_data_point.keys(),
-            )
-            if custom_filtered_df.shape[0] > 0:
-                data["custom_data_point_interval_mean"] = custom_filtered_df.mean()
-                data["custom_data_point_interval_variance"] = custom_filtered_df.var()
-
-            else:
-                data["custom_data_point_interval_mean"] = 0.0
-                data["custom_data_point_interval_variance"] = 0.0
-                print("Custom Point is non-convergent. All values are set to zero.")
-            data["custom_delta"] = (
-                data["custom_data_point_interval_mean"] - data["design_mean"]
-            )
-            data = data.apply(modify_row, axis=1)
 
         data["max_confidence_mean"] = (
             max_confidence_filtered_df.mean()
@@ -619,16 +565,6 @@ class UncertaintyOptimisation:
             self.uq_data.sampled_variables,
         )
 
-    def _calculate_custom_jointerval_probability(self, data):
-        """Calculate joint probability for custom data points."""
-        custom_significant_converged_data = data.loc[
-            self.uq_data.converged_df,
-            "custom_data_point_interval_probability",
-        ]
-        data["jointerval_custom_probability"] = (
-            custom_significant_converged_data.product()
-        )
-
     def create_plot(self, uncertain_variable, export_svg=False, svg_path=None):
         """Create some plots to show how the probability of convergence is deconvolved into the uncertain space for each variable.
         This function plots bar charts which show the probability of convergence for intervals in uncertain variable space.
@@ -730,7 +666,7 @@ class UncertaintyOptimisation:
         )
         whisker_width = 3
         whisker_colour = "black"
-        whisker_alpha = 0.6
+        whisker_alpha = 0.4
         whisker_head_size = 20
         whisker.line_color = whisker_colour
         whisker.line_alpha = whisker_alpha
@@ -879,38 +815,6 @@ class UncertaintyOptimisation:
             #     formatter=general_formatter,
             # ),
         ]
-        if self.custom_data_point is not None:
-            columns.insert(
-                4,
-                TableColumn(
-                    field="custom_data_point_interval_mean",
-                    title="Custom Point",
-                    formatter=general_formatter,
-                ),
-            )
-            columns.insert(
-                4,
-                TableColumn(
-                    field="custom_data_point_interval_variance",
-                    title="Custom Variance",
-                    formatter=general_formatter,
-                ),
-            )
-            # columns.insert(
-            #     5,
-            #     TableColumn(
-            #         field="custom_delta",
-            #         title="Custom Delta",
-            #         formatter=general_formatter,
-            #     ),
-            # )
-            # columns.append(
-            #     TableColumn(
-            #         field="jointerval_custom_probability",
-            #         title="Custom Probability",
-            #         formatter=general_formatter,
-            #     )
-            # )
 
         plotting_data = self.plotting_data
         plotting_data = plotting_data.map(format_number)
@@ -1158,10 +1062,6 @@ class uncertain_variable_data:
     design_mean_index: int
     max_confidence_index: int
     interval_width: float
-    custom_data_point: float
-    custom_data_point_interval_index: float
-    custom_data_point_interval_probability: float
-
 
 def filter_dataframe_by_columns_and_values(
     dataframe,
