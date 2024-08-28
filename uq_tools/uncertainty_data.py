@@ -77,7 +77,7 @@ class UncertaintyData:
         for file_name in os.listdir(self.path_in):
             if file_name.endswith('.h5'):
                 file_path = os.path.join(self.path_in, file_name)
-                df = pd.read_h5(file_path)
+                df = pd.read_hdf(file_path)
                 all_data.append(df)
         
         if all_data:
@@ -825,7 +825,7 @@ def merge_h5_files(path_to_h5):
         for file in files:
             pos_h5 = root + os.sep + file
             if pos_h5.endswith(".h5") and "uncertainties_data" in pos_h5:
-                extra_uncertainties_df = pd.read_h5(pos_h5)
+                extra_uncertainties_df = pd.read_hdf(pos_h5)
                 list_uncertainties_dfs.append(extra_uncertainties_df)
     return pd.concat(list_uncertainties_dfs)
 
