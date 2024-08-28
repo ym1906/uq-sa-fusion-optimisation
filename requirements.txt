@@ -59,3 +59,4 @@ traitlets==5.9.0
 tzdata==2023.3
 wcwidth==0.2.6
 xyzservices==2023.7.0
+networkx==3.3
