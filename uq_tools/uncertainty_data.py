@@ -10,8 +10,9 @@ from shapely.geometry import LineString
 from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot, row
 from bokeh.io import export_svgs, export_png, export_svg
-from bokeh.models import ColumnDataSource, Range1d, Legend, MathText
+from bokeh.models import ColumnDataSource, Range1d, Legend, MathText, HoverTool
 from bokeh.palettes import Category10
+
 
 class UncertaintyData:
     """The tool looks for HDF files containing uncertainty data, merges them,
@@ -43,7 +44,9 @@ class UncertaintyData:
             self.data_frame = data_source
             self.path_in = None  # No path needed when dataframe is directly passed
         else:
-            raise TypeError("data_source must be either a valid path to a folder or a pandas DataFrame.")
+            raise TypeError(
+                "data_source must be either a valid path to a folder or a pandas DataFrame."
+            )
 
         self.sampled_variables = sampled_variables
         self.image_export_path = self.path_in if self.path_in else "."
@@ -75,11 +78,11 @@ class UncertaintyData:
         """
         all_data = []
         for file_name in os.listdir(self.path_in):
-            if file_name.endswith('.h5'):
+            if file_name.endswith(".h5"):
                 file_path = os.path.join(self.path_in, file_name)
                 df = pd.read_hdf(file_path)
                 all_data.append(df)
-        
+
         if all_data:
             return pd.concat(all_data, ignore_index=True)
         else:
@@ -107,13 +110,21 @@ class UncertaintyData:
     def separate_converged_unconverged(self):
         """Create separate dataframes for converged and unconverged sample points."""
         try:
-            self.converged_df = self.uncertainties_df[self.uncertainties_df["ifail"] == 1.0]
-            self.unconverged_df = self.uncertainties_df[self.uncertainties_df["ifail"] != 1.0]
+            self.converged_df = self.uncertainties_df[
+                self.uncertainties_df["ifail"] == 1.0
+            ]
+            self.unconverged_df = self.uncertainties_df[
+                self.uncertainties_df["ifail"] != 1.0
+            ]
         except KeyError as e:
             # Handle the case where "ifail" doesn't exist or there are no failed runs
             print(f"KeyError: {e}")
             self.converged_df = self.uncertainties_df
-            self.unconverged_df = pd.DataFrame(data=None, columns=self.converged_df.columns, index=self.converged_df.index)
+            self.unconverged_df = pd.DataFrame(
+                data=None,
+                columns=self.converged_df.columns,
+                index=self.converged_df.index,
+            )
 
     def set_image_export_path(self, path):
         """
@@ -124,7 +135,9 @@ class UncertaintyData:
         """
         self.image_export_path = path
 
-    def initialize_data(self):
+    def initialize_data(
+        self,
+    ):
         """Runs data loading, processing, and separation of converged/unconverged in sequence."""
         self.load_data()
         self.process_data()
@@ -357,7 +370,6 @@ class UncertaintyData:
             p.output_backend = "svg"
             export_svg(p, filename=filename)
 
-
     def convergence_study(self, n, sampled_variables, process_output):
         """This function is used to calculate RBD FAST sensitivities indices for a subset.
         It draws a random sample, of a given size, from the total dataset. This is used to
@@ -479,27 +491,31 @@ class UncertaintyData:
         hist=True,
         bins=10,
         export_image=False,
+        hover_tool=False,  # New parameter to control the hover tool
     ):
         """Create a scatter plot for two variables.
         Also calculates a 2D histogram to plot the density of points on the x-y axis.
-        Options to turn off histogram or scatter points.
+        Options to turn off histogram, scatter points, and hover tool.
 
         :param data: Dataframe containing variable data
-        :type data: pd.dataframe
+        :type data: pd.DataFrame
         :param x_variable: x-axis variable
         :type x_variable: str
         :param y_variable: y-axis variable
         :type y_variable: str
-        :param scatter: plot scattered points, defaults to True
+        :param scatter: Plot scattered points, defaults to True
         :type scatter: bool, optional
-        :param hist: plot 2D histogram (density of points), defaults to True
+        :param hist: Plot 2D histogram (density of points), defaults to True
         :type hist: bool, optional
         :param bins: Number of bins for 2D histogram, defaults to 10
         :type bins: int, optional
         :param export_image: Save the image, defaults to False
         :type export_image: bool, optional
+        :param hover_tool: Include hover tool, defaults to False
+        :type hover_tool: bool, optional
         """
-        p = figure(title="Scatter Plot Comparison: " + x_variable + "v" + y_variable)
+        # Create a Bokeh figure
+        p = figure(title="Scatter Plot Comparison: " + x_variable + " vs " + y_variable)
 
         # Extract data
         x = data[x_variable]
@@ -509,7 +525,7 @@ class UncertaintyData:
         H, xe, ye = np.histogram2d(x=x, y=y, bins=bins)
 
         # Create an image plot
-        if hist is True:
+        if hist:
             p.image(
                 image=[H.T],
                 x=xe[0],
@@ -521,15 +537,28 @@ class UncertaintyData:
             )
 
         # Overlay scatter points
-        if scatter is True:
-            p.scatter(x=x, y=y, size=8, color="blue", alpha=0.5)
+        if scatter:
+            scatter_source = ColumnDataSource(data=dict(x=x, y=y))
+            p.scatter(
+                x="x", y="y", source=scatter_source, size=8, color="blue", alpha=0.5
+            )
+
+            # Optionally add HoverTool
+            if hover_tool:
+                hover = HoverTool()
+                hover.tooltips = [
+                    ("Index", "$index"),
+                    (f"({x_variable}, {y_variable})", "(@x, @y)"),
+                ]
+                p.add_tools(hover)
 
         # Customize the plot
-        p.xaxis.axis_label = process_variable_dict[x_variable]
-        p.yaxis.axis_label = process_variable_dict[y_variable]
+        p.xaxis.axis_label = x_variable
+        p.yaxis.axis_label = y_variable
 
         # Show the plot
         show(row(p))
+
         if export_image:
             # Use the default directory of the script
             filename = (
@@ -546,14 +575,15 @@ class UncertaintyData:
         hist=True,
         height_width=250,
         export_image=False,
+        hover_tool=False,  # New parameter to control the hover tool
     ):
         """Create a scatter grid.
 
-        :param data: dataframe containing UQ data
-        :type data: pd.dataframe
-        :param variables: variables to plot
+        :param data: Dataframe containing UQ data
+        :type data: pd.DataFrame
+        :param variables: Variables to plot
         :type variables: list
-        :param bins: number of bins in 2D histogram, defaults to 10
+        :param bins: Number of bins in 2D histogram, defaults to 10
         :type bins: int, optional
         :param scatter: Plot scattered points, defaults to True
         :type scatter: bool, optional
@@ -563,8 +593,9 @@ class UncertaintyData:
         :type height_width: int, optional
         :param export_image: Save the image, defaults to False
         :type export_image: bool, optional
+        :param hover_tool: Include hover tool, defaults to False
+        :type hover_tool: bool, optional
         """
-        # Create a grid of scatter plots
         plots = []
         for i, var1 in enumerate(variables):
             row_plots = []
@@ -573,13 +604,14 @@ class UncertaintyData:
                     # Compute 2D histogram
                     H, xe, ye = np.histogram2d(x=data[var1], y=data[var2], bins=bins)
 
-                    # Create an image plot
+                    # Create a figure
                     p = figure(
                         title=f"{var1} vs {var2}",
                         height=height_width,
                         width=height_width,
                     )
-                    if hist is True:
+
+                    if hist:
                         p.image(
                             image=[H.T],
                             x=xe[0],
@@ -590,15 +622,34 @@ class UncertaintyData:
                             alpha=0.6,
                         )
 
-                    # Overlay scatter points
-                    if scatter is True:
+                    if scatter:
+                        # Create ColumnDataSource for scatter plot
+                        scatter_source = ColumnDataSource(
+                            data={
+                                "x": data[var1],
+                                "y": data[var2],
+                                **{var: data[var].tolist() for var in variables},
+                            }
+                        )
+
+                        # Add scatter plot
                         p.scatter(
-                            x=data[var1],
-                            y=data[var2],
+                            x="x",
+                            y="y",
+                            source=scatter_source,
                             size=8,
                             color="blue",
                             alpha=0.5,
                         )
+
+                        # Optionally add HoverTool
+                        if hover_tool:
+                            hover = HoverTool()
+                            hover.tooltips = [("Index", "$index")] + [
+                                (var, "@" + var) for var in variables
+                            ]
+                            p.add_tools(hover)
+
                     # Customize the plot
                     p.xaxis.axis_label = var1
                     p.yaxis.axis_label = var2
@@ -610,10 +661,12 @@ class UncertaintyData:
 
         # Create a grid layout
         grid = gridplot(plots)
+
         if export_image:
             # Use the default directory of the script
-            filename = self.image_export_path + "/" "scatter_grid_plot.png"
-            export_png(p, filename=filename)
+            filename = self.image_export_path + "/" + "scatter_grid_plot.png"
+            export_png(grid, filename=filename)
+
         # Show the plot
         show(grid)
 
@@ -891,9 +944,10 @@ def replace_variable_names(variable_list, process_variable_dict, trim_units=Fals
         desc = process_variable_dict.get(var, var)
         if trim_units:
             # Remove anything within parentheses
-            desc = re.sub(r'\s*\(.*?\)', '', desc)
+            desc = re.sub(r"\s*\(.*?\)", "", desc)
         descriptions.append(desc)
     return descriptions
+
 
 def read_json(file):
     """Read and print a json file.
