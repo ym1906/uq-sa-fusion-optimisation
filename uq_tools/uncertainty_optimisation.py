@@ -81,15 +81,19 @@ class UncertaintyOptimisation:
         self.plot_height_width = 275  # height and width of plots.
         # Here you could switch between real and synthetic data. In general, use the real data
         # but synthetic may be useful if convergence is low.
-        self.uncertainties_df=self.uq_data.uncertainties_df
-        self.converged_data=self.uq_data.converged_df    
+        self.uncertainties_df = self.uq_data.uncertainties_df
+        self.converged_data = self.uq_data.converged_df
         self.custom_data_range = custom_data_range
         if self.custom_data_range is not None:
-              for variable_name, bounds in self.custom_data_range.items():
-                lower_bound = bounds.get('lower_bound')
-                upper_bound = bounds.get('upper_bound')
-                self.uncertainties_df = filter_dataframe_between_ranges(self.uncertainties_df, variable_name, lower_bound,upper_bound)
-                self.converged_data = filter_dataframe_between_ranges(self.converged_data, variable_name, lower_bound,upper_bound)
+            for variable_name, bounds in self.custom_data_range.items():
+                lower_bound = bounds.get("lower_bound")
+                upper_bound = bounds.get("upper_bound")
+                self.uncertainties_df = filter_dataframe_between_ranges(
+                    self.uncertainties_df, variable_name, lower_bound, upper_bound
+                )
+                self.converged_data = filter_dataframe_between_ranges(
+                    self.converged_data, variable_name, lower_bound, upper_bound
+                )
         self.probability_df = pd.DataFrame()
 
     def run(self):
@@ -397,7 +401,6 @@ class UncertaintyOptimisation:
         #     design_range_variance = self.converged_data[variable].var()
         #     design_range_mean = self.converged_data[variable].mean()
 
-            
         # Create variable dataclass and store it
         variable_data = uncertain_variable_data(
             name=variable,
@@ -732,7 +735,7 @@ class UncertaintyOptimisation:
         return probability_vbar_grid
 
     def create_datatable(self):
-        """Create a datatable which summarises findings from the copula."""
+        """Create a datatable which summarises findings."""
 
         general_formatter = HTMLTemplateFormatter(
             template='<span style="color: black;"><%- value %></span>'
@@ -746,22 +749,22 @@ class UncertaintyOptimisation:
             ),
             TableColumn(
                 field="design_range_start",
-                title="Range LB",
+                title="Initial LB",
                 formatter=general_formatter,
             ),
             TableColumn(
                 field="design_range_end",
-                title="Range UB",
+                title="Initial UB",
                 formatter=general_formatter,
             ),
             TableColumn(
                 field="design_mean",
-                title="Design Mean",
+                title="Initial Mean",
                 formatter=general_formatter,
             ),
             TableColumn(
                 field="design_variance",
-                title="Design Variance",
+                title="Initial Variance",
                 formatter=general_formatter,
             ),
             TableColumn(
@@ -923,8 +926,8 @@ class UncertaintyOptimisation:
             ("Name", "@name"),
             ("Description", "@description"),
             ("Optimised value", "@max_confidence_mean"),
-            ("Range LB", "@design_range_start"),
-            ("Range UB", "@design_range_end"),
+            ("Initial LB", "@design_range_start"),
+            ("Initial UB", "@design_range_end"),
         ]
         plot.add_tools(
             HoverTool(tooltips=tooltips),
@@ -1062,6 +1065,7 @@ class uncertain_variable_data:
     design_mean_index: int
     max_confidence_index: int
     interval_width: float
+
 
 def filter_dataframe_by_columns_and_values(
     dataframe,
