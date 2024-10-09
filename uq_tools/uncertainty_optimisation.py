@@ -196,21 +196,20 @@ class UncertaintyOptimisation:
         grid plots later."""
         # need to rework this slightly for using synthetic data separately todo.
         if variable in self.uq_data.sampled_variables:
-            design_range_start, design_range_end, design_mean, design_variance = (
-                self.converged_data[variable].min(),
-                self.converged_data[variable].max(),
-                self.converged_data[variable].mean(),
-                self.converged_data[variable].var(),
+            design_range_start, design_range_end, design_mean, design_std = (
+                self.uncertainties_df[variable].min(),
+                self.uncertainties_df[variable].max(),
+                self.uncertainties_df[variable].mean(),
+                self.uncertainties_df[variable].std(),
             )
         else:
-            design_range_start, design_range_end, design_mean, design_variance = (
+            design_range_start, design_range_end, design_mean, design_std = (
                 self.converged_data[variable].min(),
                 self.converged_data[variable].max(),
                 self.converged_data[variable].mean(),
-                self.converged_data[variable].var(),
+                self.converged_data[variable].std(),
             )
-            # print(variable,self.converged_data[variable].var())
-        return design_range_start, design_range_end, design_mean, design_variance
+        return design_range_start, design_range_end, design_mean, design_std
 
     def _add_interval_column(self, dataframe, variable: str, design_range_intervals):
         interval_column_name = variable + "_interval"
@@ -297,8 +296,12 @@ class UncertaintyOptimisation:
             design_range_start,
             design_range_end,
             design_mean,
-            design_variance,
+            design_std,
         ) = self._get_design_range_and_value(variable)
+        robustness_index = (design_mean - design_std) / (
+            design_range_end - design_range_start
+        )
+
         # Create intervals over the entire sampled range.
         design_range_intervals = np.linspace(
             design_range_start,
@@ -317,7 +320,6 @@ class UncertaintyOptimisation:
         interval_probability = self._calculate_interval_probability(
             design_range_intervals, variable
         )
-
         self.converged_data["pdf"] = interval_probability
         # Search var_pdf and map values to intervals, sum pdf over intervals.
         converged_intervals = interval_probability
@@ -379,7 +381,6 @@ class UncertaintyOptimisation:
         # Get the input values
         # design_mean_probability = interval_confidence[design_mean_index]
         # Get the maximum pdf value
-
         max_confidence = interval_confidence.max()
         max_confidence_index = interval_confidence.argmax()
         max_confidence_design_interval = design_range_intervals[max_confidence_index]
@@ -408,7 +409,7 @@ class UncertaintyOptimisation:
             design_range_start=design_range_start,
             design_range_end=design_range_end,
             design_mean=design_mean,
-            design_variance=design_variance,
+            design_std=robustness_index,
             design_range_intervals=design_range_intervals,
             number_of_intervals=len(design_range_intervals),
             interval_probability=interval_probability,
@@ -442,12 +443,10 @@ class UncertaintyOptimisation:
         data = self._convert_variable_data_to_dataframe(variable_data)
         # Joint probability calculations
         self._calculate_jointerval_confidence(data)
-
         # Filter dataframes based on design and max probability values
         max_confidence_filtered_df = self._filter_dataframe_by_index(
             self.converged_data, data, "max_confidence_index", self.input_names
         )
-
         data["max_confidence_mean"] = (
             max_confidence_filtered_df.mean()
             if max_confidence_filtered_df.shape[0] > 0
@@ -763,7 +762,7 @@ class UncertaintyOptimisation:
                 formatter=general_formatter,
             ),
             TableColumn(
-                field="design_variance",
+                field="design_std",
                 title="Initial Variance",
                 formatter=general_formatter,
             ),
@@ -1049,7 +1048,7 @@ class uncertain_variable_data:
     design_range_start: float
     design_range_end: float
     design_mean: float
-    design_variance: float
+    design_std: float
     design_range_intervals: np.array
     number_of_intervals: int
     interval_probability: np.array
@@ -1097,6 +1096,29 @@ def filter_dataframe_by_columns_and_values(
     filtered_df = dataframe[filter_condition]
 
     return filtered_df
+
+
+def filter_dataframe_by_custom_range(df, custom_data_range):
+    """
+    Filters a dataframe based on a custom data range for specific variables.
+
+    Parameters:
+        df (pd.DataFrame): The dataframe to be filtered.
+        custom_data_range (dict): A dictionary where keys are variable names and values
+                                  are dictionaries with 'lower_bound' and 'upper_bound'.
+
+    Returns:
+        pd.DataFrame: Filtered dataframe.
+    """
+    if custom_data_range is not None:
+        for variable_name, bounds in custom_data_range.items():
+            lower_bound = bounds.get("lower_bound")
+            upper_bound = bounds.get("upper_bound")
+            df = filter_dataframe_between_ranges(
+                df, variable_name, lower_bound, upper_bound
+            )
+
+    return df
 
 
 def format_number(
