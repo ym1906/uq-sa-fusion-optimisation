@@ -10,8 +10,18 @@ from shapely.geometry import LineString
 from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot, row
 from bokeh.io import export_svgs, export_png, export_svg
-from bokeh.models import ColumnDataSource, Range1d, Legend, MathText, HoverTool
-from bokeh.palettes import Category10
+from bokeh.models import (
+    ColumnDataSource,
+    Range1d,
+    Legend,
+    MathText,
+    HoverTool,
+    LinearColorMapper,
+    ColorBar,
+)
+from bokeh.palettes import Category10, Spectral10, Spectral11
+from bokeh.colors import RGB
+from bokeh.transform import linear_cmap
 
 
 class UncertaintyData:
@@ -51,6 +61,32 @@ class UncertaintyData:
         self.sampled_variables = sampled_variables
         self.image_export_path = self.path_in if self.path_in else "."
 
+    def calculate_weights(converged_data, x_variable, y_variable):
+        """Calculate weights based on frequency of convergence.
+
+        :param converged_data: Dataframe containing converged points
+        :type converged_data: pd.DataFrame
+        :param x_variable: x-axis variable
+        :type x_variable: str
+        :param y_variable: y-axis variable
+        :type y_variable: str
+        :return: Dataframe with an additional weight column
+        :rtype: pd.DataFrame
+        """
+        # Group by x and y coordinates and count the occurrences (frequency of convergence)
+        weight_data = (
+            converged_data.groupby([x_variable, y_variable])
+            .size()
+            .reset_index(name="weight")
+        )
+
+        # Merge the weight column back into the original dataframe
+        converged_data_with_weights = pd.merge(
+            converged_data, weight_data, on=[x_variable, y_variable], how="left"
+        )
+
+        return converged_data_with_weights
+
     def load_data(self):
         """
         Loads data from the folder (if applicable) or uses the preloaded DataFrame.
@@ -63,14 +99,27 @@ class UncertaintyData:
             # Load and merge data from HDF files in the folder
             print(f"Loading data from folder: {self.path_in}")
             self.uncertainties_df = self._load_h5_files()
-
-        # Remove columns which have the same value in every row
+        # Remove rows with any text values (non-numeric, non-NaN values)
+        self.uncertainties_df = self.uncertainties_df[
+            self.uncertainties_df.map(
+                lambda x: pd.api.types.is_numeric_dtype(type(x)) or pd.isna(x)
+            )
+        ]
         unique_array = self._unique_cols(self.uncertainties_df)
         self.uncertainties_df = self.uncertainties_df.loc[:, ~unique_array]
+        # Check if the columns are MultiIndex
+        if isinstance(self.uncertainties_df.columns, pd.MultiIndex):
+            # Rename columns to remove the second element of the tuple
+            self.uncertainties_df.columns = [
+                col[0] for col in self.uncertainties_df.columns
+            ]
+        self.uncertainties_df = self.uncertainties_df.dropna(
+            subset=self.sampled_variables + ["ifail"]
+        ).reset_index(drop=True)
 
         # Transformations on specific columns
-        if "sqsumsq" in self.uncertainties_df.columns:
-            self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+        # if "sqsumsq" in self.uncertainties_df.columns:
+        #     self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
 
     def _load_h5_files(self):
         """
@@ -114,7 +163,7 @@ class UncertaintyData:
                 self.uncertainties_df["ifail"] == 1.0
             ]
             self.unconverged_df = self.uncertainties_df[
-                self.uncertainties_df["ifail"] != 1.0
+                self.uncertainties_df["ifail"] > 1.0
             ]
         except KeyError as e:
             # Handle the case where "ifail" doesn't exist or there are no failed runs
@@ -300,76 +349,6 @@ class UncertaintyData:
         # plt.savefig("plots/sensitivity_fom.svg", bbox_inches="tight")
         plt.show()
 
-    def plot_sensitivity(
-        self, indices, names, export_image=False, significance_level=None, title=None
-    ):
-        """Plot the results of a sensitivity analysis.
-
-        :param indices: Sensitivity index values.
-        :type indices: pd.series
-        :param names: Names of variables in the analysis.
-        :type names: list
-        :param export_image: Option to save the image, defaults to False
-        :type export_image: bool, optional
-        :param significance_level: Specify a significance level to plot on graph, defaults to None
-        :type significance_level: float, optional
-        :param title: Include a title on the graph, defaults to None
-        :type title: str, optional
-        """
-
-        significance_level = significance_level or 0.05
-
-        # Create a Bokeh figure
-        p = figure(
-            title=title,
-            width=800,
-            height=400,
-            y_range=names,
-        )
-        # Create a ColumnDataSource for the data
-        source = ColumnDataSource(
-            {
-                "x": indices,
-                "names": names,
-            }
-        )
-        # Add a shaded region of insignificance
-        p.quad(
-            top=len(indices),
-            bottom=-0.5,
-            left=0,
-            right=significance_level,
-            fill_color="grey",
-            fill_alpha=0.2,
-            line_color="white",
-            legend_label="Region of Insignificance",
-        )
-        # Plot horizontal bars#
-        p.hbar(
-            y="names",
-            left=0,
-            right="x",
-            height=0.8,
-            source=source,
-            fill_color="blue",
-            line_color="white",
-            legend_label="Significance Index",
-            alpha=0.5,
-        )
-
-        # Customize the plot
-        p.xaxis.axis_label = "Index"
-        p.yaxis.axis_label = "PROCESS Parameter"
-        p.legend.location = "top_right"
-        p.legend.label_text_font_size = "12pt"
-
-        show(p)
-        if export_image:
-            # Use the default directory of the script
-            filename = self.image_export_path + "/" + title + "_plot.svg"
-            p.output_backend = "svg"
-            export_svg(p, filename=filename)
-
     def convergence_study(self, n, sampled_variables, process_output):
         """This function is used to calculate RBD FAST sensitivities indices for a subset.
         It draws a random sample, of a given size, from the total dataset. This is used to
@@ -482,199 +461,95 @@ class UncertaintyData:
         )
         plt.show()
 
-    def scatter(
-        self,
-        data,
-        x_variable,
-        y_variable,
-        scatter=True,
-        hist=True,
-        bins=10,
-        export_image=False,
-        hover_tool=False,  # New parameter to control the hover tool
+    def ecdf_plot(
+        self, figure_of_merit, num_steps=10, image_height_width=500, export_image=False
     ):
-        """Create a scatter plot for two variables.
-        Also calculates a 2D histogram to plot the density of points on the x-y axis.
-        Options to turn off histogram, scatter points, and hover tool.
+        """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
+        Additionally, plot the convergence rate and the design point value.
 
-        :param data: Dataframe containing variable data
-        :type data: pd.DataFrame
-        :param x_variable: x-axis variable
-        :type x_variable: str
-        :param y_variable: y-axis variable
-        :type y_variable: str
-        :param scatter: Plot scattered points, defaults to True
-        :type scatter: bool, optional
-        :param hist: Plot 2D histogram (density of points), defaults to True
-        :type hist: bool, optional
-        :param bins: Number of bins for 2D histogram, defaults to 10
-        :type bins: int, optional
-        :param export_image: Save the image, defaults to False
-        :type export_image: bool, optional
-        :param hover_tool: Include hover tool, defaults to False
-        :type hover_tool: bool, optional
+        :param figure_of_merit: Parameter to investigate
+        :type figure_of_merit: str
+        :param num_steps: Number of steps for the ECDF lines, default is 100
+        :type num_steps: int
         """
-        # Create a Bokeh figure
-        p = figure(title="Scatter Plot Comparison: " + x_variable + " vs " + y_variable)
+        line_width = 10
+        image_height_width
+        # Arrange the data into df
+        converged_fom_df = self.converged_df[figure_of_merit].to_numpy()
+        uq_fom_df = self.uncertainties_df[figure_of_merit].to_numpy()
+        # Calculate cumulative distribution functions
+        ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
+        ecdf_conv = sm.distributions.ECDF(converged_fom_df)
+        # Bin the data
+        x = np.linspace(min(uq_fom_df), max(uq_fom_df), num_steps)
+        ri_t = []
+        y_unconv = ecdf_unconv(x)
+        y_conv = ecdf_conv(x)
 
-        # Extract data
-        x = data[x_variable]
-        y = data[y_variable]
+        # Plotting with Bokeh
+        p = figure(
+            x_axis_label=process_variable_dict[figure_of_merit],
+            y_axis_label="Percentage of Samples",
+            width=image_height_width,
+            height=image_height_width,
+            title="ECDF Plot",
+        )
+        # Plot the ecdf functions
+        p.line(
+            x,
+            y_unconv,
+            line_color="red",
+            legend_label="Unconverged samples",
+            line_width=line_width,
+        )
+        p.line(
+            x,
+            y_conv,
+            line_color="blue",
+            legend_label="Converged samples",
+            line_width=line_width,
+        )
 
-        # Compute 2D histogram
-        H, xe, ye = np.histogram2d(x=x, y=y, bins=bins)
-
-        # Create an image plot
-        if hist:
-            p.image(
-                image=[H.T],
-                x=xe[0],
-                y=ye[0],
-                dw=xe[-1] - xe[0],
-                dh=ye[-1] - ye[0],
-                palette="Spectral11",
-                alpha=0.6,
+        # Calculate rate of convergence for bins in x
+        for d in range(len(x) - 1):
+            n_c = len(
+                self.converged_df[
+                    self.converged_df[figure_of_merit].between(x[d], x[d + 1])
+                ].index
             )
-
-        # Overlay scatter points
-        if scatter:
-            scatter_source = ColumnDataSource(data=dict(x=x, y=y))
-            p.scatter(
-                x="x", y="y", source=scatter_source, size=8, color="blue", alpha=0.5
+            n_t = len(
+                self.uncertainties_df[
+                    self.uncertainties_df[figure_of_merit].between(x[d], x[d + 1])
+                ].index
             )
+            if n_t == 0:
+                n_t = 0.0000001
+            ri = n_c / n_t
+            ri_t.append(ri)
 
-            # Optionally add HoverTool
-            if hover_tool:
-                hover = HoverTool()
-                hover.tooltips = [
-                    ("Index", "$index"),
-                    (f"({x_variable}, {y_variable})", "(@x, @y)"),
-                ]
-                p.add_tools(hover)
+        # Plot convergence rate
+        p.line(
+            x[:-1],
+            ri_t,
+            line_color="orange",
+            legend_label="Convergence rate",
+            line_width=line_width,
+        )
 
-        # Customize the plot
-        p.xaxis.axis_label = x_variable
-        p.yaxis.axis_label = y_variable
+        p.legend.location = "top_left"
+        p.legend.click_policy = "hide"
 
-        # Show the plot
-        show(row(p))
-
+        show(p)
         if export_image:
             # Use the default directory of the script
-            filename = (
-                self.image_export_path + "/" + x_variable + y_variable + "-plot.png"
-            )
+            filename = self.image_export_path + "/" + figure_of_merit + "-ecdf-plot.png"
             export_png(p, filename=filename)
-
-    def scatter_grid(
-        self,
-        data,
-        variables,
-        bins=10,
-        scatter=True,
-        hist=True,
-        height_width=250,
-        export_image=False,
-        hover_tool=False,  # New parameter to control the hover tool
-    ):
-        """Create a scatter grid.
-
-        :param data: Dataframe containing UQ data
-        :type data: pd.DataFrame
-        :param variables: Variables to plot
-        :type variables: list
-        :param bins: Number of bins in 2D histogram, defaults to 10
-        :type bins: int, optional
-        :param scatter: Plot scattered points, defaults to True
-        :type scatter: bool, optional
-        :param hist: Plot 2D histogram, defaults to True
-        :type hist: bool, optional
-        :param height_width: Specify the height and width of plot in px, defaults to 250
-        :type height_width: int, optional
-        :param export_image: Save the image, defaults to False
-        :type export_image: bool, optional
-        :param hover_tool: Include hover tool, defaults to False
-        :type hover_tool: bool, optional
-        """
-        plots = []
-        for i, var1 in enumerate(variables):
-            row_plots = []
-            for j, var2 in enumerate(variables):
-                if j >= i:
-                    # Compute 2D histogram
-                    H, xe, ye = np.histogram2d(x=data[var1], y=data[var2], bins=bins)
-
-                    # Create a figure
-                    p = figure(
-                        title=f"{var1} vs {var2}",
-                        height=height_width,
-                        width=height_width,
-                    )
-
-                    if hist:
-                        p.image(
-                            image=[H.T],
-                            x=xe[0],
-                            y=ye[0],
-                            dw=xe[-1] - xe[0],
-                            dh=ye[-1] - ye[0],
-                            palette="Spectral11",
-                            alpha=0.6,
-                        )
-
-                    if scatter:
-                        # Create ColumnDataSource for scatter plot
-                        scatter_source = ColumnDataSource(
-                            data={
-                                "x": data[var1],
-                                "y": data[var2],
-                                **{var: data[var].tolist() for var in variables},
-                            }
-                        )
-
-                        # Add scatter plot
-                        p.scatter(
-                            x="x",
-                            y="y",
-                            source=scatter_source,
-                            size=8,
-                            color="blue",
-                            alpha=0.5,
-                        )
-
-                        # Optionally add HoverTool
-                        if hover_tool:
-                            hover = HoverTool()
-                            hover.tooltips = [("Index", "$index")] + [
-                                (var, "@" + var) for var in variables
-                            ]
-                            p.add_tools(hover)
-
-                    # Customize the plot
-                    p.xaxis.axis_label = var1
-                    p.yaxis.axis_label = var2
-                    row_plots.append(p)
-                else:
-                    row_plots.append(None)
-
-            plots.append(row_plots)
-
-        # Create a grid layout
-        grid = gridplot(plots)
-
-        if export_image:
-            # Use the default directory of the script
-            filename = self.image_export_path + "/" + "scatter_grid_plot.png"
-            export_png(grid, filename=filename)
-
-        # Show the plot
-        show(grid)
 
     def convergence_regional_sensitivity_analysis(self, variable_names):
         """Regional sensitivity anlysis to find the parameters which influence a converged solution.
         Uses modified RSA technique from SALib."""
         variable_names = variable_names or self.sampled_variables
-        figure_of_merit_df = self.uncertainties_df["sqsumsq"]
+        figure_of_merit_df = self.uncertainties_df["ifail"]
         sampled_vars_df = self.uncertainties_df[variable_names]
         convergence_problem = {
             "num_vars": len(sampled_vars_df),
@@ -769,89 +644,48 @@ class UncertaintyData:
             export_png(p, filename=filename)
         return filtered_max_rsa
 
-    def ecdf_plot(
-        self, figure_of_merit, num_steps=10, image_height_width=500, export_image=False
-    ):
-        """Plot Empirical Cumulative distribution Functions for converged and unconverged samples.
-        Additionally, plot the convergence rate and the design point value.
 
-        :param figure_of_merit: Parameter to investigate
-        :type figure_of_merit: str
-        :param num_steps: Number of steps for the ECDF lines, default is 100
-        :type num_steps: int
-        """
-        line_width = 10
-        image_height_width
-        # Arrange the data into df
-        converged_fom_df = self.converged_df[figure_of_merit].to_numpy()
-        uq_fom_df = self.uncertainties_df[figure_of_merit].to_numpy()
-        # Calculate cumulative distribution functions
-        ecdf_unconv = sm.distributions.ECDF(uq_fom_df)
-        ecdf_conv = sm.distributions.ECDF(converged_fom_df)
-        # Bin the data
-        x = np.linspace(min(uq_fom_df), max(uq_fom_df), num_steps)
-        ri_t = []
-        y_unconv = ecdf_unconv(x)
-        y_conv = ecdf_conv(x)
+def filter_dataframe_between_ranges(dataframe, column_name, lower_bound, upper_bound):
+    """
+    Filter a DataFrame based on a specified column and range values.
 
-        # Plotting with Bokeh
-        p = figure(
-            x_axis_label=process_variable_dict[figure_of_merit],
-            y_axis_label="Percentage of Samples",
-            width=image_height_width,
-            height=image_height_width,
-            title="ECDF Plot",
-        )
-        # Plot the ecdf functions
-        p.line(
-            x,
-            y_unconv,
-            line_color="red",
-            legend_label="Unconverged samples",
-            line_width=line_width,
-        )
-        p.line(
-            x,
-            y_conv,
-            line_color="blue",
-            legend_label="Converged samples",
-            line_width=line_width,
-        )
+    Parameters:
+    - dataframe: pandas DataFrame
+    - column_name: str, the column on which filtering is to be applied
+    - lower_bound: numeric, the lower bound of the range (inclusive)
+    - upper_bound: numeric, the upper bound of the range (inclusive)
 
-        # Calculate rate of convergence for bins in x
-        for d in range(len(x) - 1):
-            n_c = len(
-                self.converged_df[
-                    self.converged_df[figure_of_merit].between(x[d], x[d + 1])
-                ].index
+    Returns:
+    - filtered_dataframe: pandas DataFrame, the filtered DataFrame
+    """
+    mask = (dataframe[column_name] >= lower_bound) & (
+        dataframe[column_name] <= upper_bound
+    )
+    filtered_dataframe = dataframe[mask]
+    return filtered_dataframe
+
+
+def filter_dataframe_by_custom_range(df, custom_data_range):
+    """
+    Filters a dataframe based on a custom data range for specific variables.
+
+    Parameters:
+        df (pd.DataFrame): The dataframe to be filtered.
+        custom_data_range (dict): A dictionary where keys are variable names and values
+                                  are dictionaries with 'lower_bound' and 'upper_bound'.
+
+    Returns:
+        pd.DataFrame: Filtered dataframe.
+    """
+    if custom_data_range is not None:
+        for variable_name, bounds in custom_data_range.items():
+            lower_bound = bounds.get("lower_bound")
+            upper_bound = bounds.get("upper_bound")
+            df = filter_dataframe_between_ranges(
+                df, variable_name, lower_bound, upper_bound
             )
-            n_t = len(
-                self.uncertainties_df[
-                    self.uncertainties_df[figure_of_merit].between(x[d], x[d + 1])
-                ].index
-            )
-            if n_t == 0:
-                n_t = 0.0000001
-            ri = n_c / n_t
-            ri_t.append(ri)
 
-        # Plot convergence rate
-        p.line(
-            x[:-1],
-            ri_t,
-            line_color="orange",
-            legend_label="Convergence rate",
-            line_width=line_width,
-        )
-
-        p.legend.location = "top_left"
-        p.legend.click_policy = "hide"
-
-        show(p)
-        if export_image:
-            # Use the default directory of the script
-            filename = self.image_export_path + "/" + figure_of_merit + "-ecdf-plot.png"
-            export_png(p, filename=filename)
+    return df
 
 
 def unique_cols(df):
@@ -883,61 +717,6 @@ def merge_h5_files(path_to_h5):
     return pd.concat(list_uncertainties_dfs)
 
 
-process_variable_dict = {
-    "walalw": "Max neutron wall-load (MW/m$^{2}$)",
-    "kappa": "Plasma separatrix elongation",
-    "triang": "Plasma separatrix triangularity",
-    "ralpne": "Thermal alpha/electron density (%)",
-    "etaech": "ECH wall plug to injector eff. (%)",
-    "pinjalw": "Max injected power (MW)",
-    "alstroh": "Allowable hoop stress in CS (Pa)",
-    "coreradius": "Normalised core radius (m)",
-    "sig_tf_wp_max": "Max sheer stress in TF coil (Pa)",
-    "psepbqarmax": "Divertor protection (MWT/m)",
-    "sig_tf_case_max": "Max stress in TF coil case (Pa)",
-    "powfmw": "Fusion power (MW)",
-    "etath": "Thermal to electric eff. (%)",
-    "wallmw": "Neutron wall-load (MW/m$^{2}$)",
-    "aspect": "Aspect ratio",
-    "tbrnmn": "Minimum burn time (s)",
-    "tape_thickness": "Tape thickness ()",
-    "thicndut": "thicndut ()",
-    "dhecoil": "dhecoil",
-    "rmajor": "Major Radius (m)",
-    "tmargtf": "Temperature margin TF coil",
-    "dene": "dene",
-    "ohcth": "ohcth",
-    "beta": "beta",
-    "betalim": "betalim",
-    "n_cycle_min": "Minimum number of allowable stress cycles",
-    "bt": "Magnetic field (T)",
-    "te": "Electron density",
-    "tfcth": "TF coil thickness (m)",
-    "bigq": "Fusion gain",
-    "bore": "Bore size (m)",
-    "coheof": "Current end-of-flat-top",
-    "cohbop": "Current beginning-of-flat-top",
-    "kappa": "Eleongation",
-    "fvsbrnni": "fvsbrnni",
-    "itvar019": "itvar019",
-    "itvar020": "itvar020",
-    "jwptf": "jwptf",
-    "vtfskv": "vtfskv",
-    "vdalw": "vdalw",
-    "tdmptf": "tdmptf",
-    "thkcas": "thkcas",
-    "thwcndut": "thwcndut",
-    "fcutfsu": "fcutfsu",
-    "cpttf": "cpttf",
-    "plhthresh": "plhthresh",
-    "tmargtf": "tmargtf",
-    "tmargoh": "tmargoh",
-    "oh_steel_frac": "Steel Fraction in CS coil",
-    "pdivt": "pdivt",
-    "powfmw": "Fusion Power (MW)",
-}
-
-
 def replace_variable_names(variable_list, process_variable_dict, trim_units=False):
     descriptions = []
     for var in variable_list:
@@ -960,3 +739,62 @@ def read_json(file):
     """
     df = pd.read_json(file, orient="split")
     print(df)
+
+
+process_variable_dict = {
+    "walalw": r"Max neutron wall-load (MW/m$^{2}$)",
+    "kappa": "Plasma separatrix elongation",
+    "triang": "Plasma separatrix triangularity",
+    "ralpne": "Thermal alpha/electron density (%)",
+    "etaech": "ECH wall plug to injector eff. (%)",
+    "pinjalw": "Max injected power (MW)",
+    "alstroh": "Allowable hoop stress in CS (Pa)",
+    "coreradius": "Normalised core radius (m)",
+    "sig_tf_wp_max": "Max sheer stress in TF coil (Pa)",
+    "psepbqarmax": "Divertor protection (MWT/m)",
+    "sig_tf_case_max": "Max stress in TF coil case (Pa)",
+    "powfmw": "Fusion power (MW)",
+    "etath": "Thermal to electric eff. (%)",
+    "wallmw": "Neutron wall-load (MW/m$^{2}$)",
+    "aspect": "Aspect ratio",
+    "tbrnmn": "Minimum burn time (s)",
+    "tape_thickness": "Tape thickness ()",
+    "thicndut": "thicndut ()",
+    "dhecoil": "dhecoil",
+    "rmajor": "Major radius (m)",
+    "tmargtf": "Temperature margin TF coil",
+    "dene": "dene",
+    "ohcth": "Central Solenoid (m)",
+    "beta": "Plasma Beta",
+    "betalim": "betalim",
+    "n_cycle_min": "Minimum number of allowable stress cycles",
+    "bt": "Magnetic field (T)",
+    "te": "Electron density",
+    "tfcth": "TF coil thickness (m)",
+    "bigq": "Fusion gain",
+    "bore": "Bore size (m)",
+    "coheof": "Current end-of-flat-top (A)",
+    "cohbop": "Current beginning-of-flat-top (A)",
+    "kappa": "Eleongation",
+    "fvsbrnni": "fvsbrnni",
+    "itvar019": "itvar019",
+    "itvar020": "itvar020",
+    "jwptf": "Engineering winding pack current density (A/m^2)",
+    "vtfskv": "vtfskv",
+    "vdalw": "vdalw",
+    "tdmptf": "tdmptf",
+    "thkcas": "thkcas",
+    "thwcndut": "thwcndut",
+    "fcutfsu": "fcutfsu",
+    "cpttf": "cpttf",
+    "plhthresh": "L-H mode power threshold (MW)",
+    "tmargtf": "tmargtf",
+    "tmargoh": "tmargoh",
+    "oh_steel_frac": "Steel Fraction in CS coil",
+    "pdivt": "pdivt",
+    "powfmw": "Fusion Power (MW)",
+    "cpttf": "TF coil current per turn (A)",
+    "bktcycles": "No. fusion cycles to reach allowable blanket DPA",
+    "vv_stress_quench": "vacuum vessel stress",
+    "n_cycle": "n_cycle",
+}
