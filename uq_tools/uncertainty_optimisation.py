@@ -75,7 +75,9 @@ class UncertaintyOptimisation:
         self.weight_confidence = weight_confidence
         self.weight_overlap = weight_overlap
         self.uq_data = uq_data
-        self.input_names = input_names
+        self.input_names = self._filter_input_vars(
+            input_names=input_names, uq_data=self.uq_data
+        )
         self.plot_list = []  # list of plots.
         self.variable_data = {}  # list of variable data classes.
         self.plot_height_width = 275  # height and width of plots.
@@ -96,18 +98,34 @@ class UncertaintyOptimisation:
                 )
         self.probability_df = pd.DataFrame()
 
+    def _filter_input_vars(self, input_names, uq_data):
+        """
+        Filters input variables by removing any that are in the dropped columns list from DataLoader
+        or not in the DataLoader's uncertainties_df columns, and removes duplicates.
+
+        Returns:
+            list: Filtered list of unique input variable names.
+        """
+        # Filter out input variables that were in the dropped columns or not in uncertainties_df columns
+        filtered_vars = [
+            var
+            for var in input_names
+            if var not in uq_data.dropped_columns
+            and var in uq_data.uncertainties_df.columns
+        ]
+
+        # Remove duplicates while preserving order
+        unique_filtered_vars = list(dict.fromkeys(filtered_vars))
+        return unique_filtered_vars
+
     def run(self):
-        """Calculate the confidence intervals, perform optimisation, and prepare the data for plotting."""
-        # 3. Calculate interval probabilities for each variable
+        """Calculate the confidence intervals, perform optimization, and prepare the data for plotting."""
         for variable in self.input_names:
             best_metric = float("-inf")
             best_config = None
             max_number_intervals = round(np.sqrt(len(self.converged_data)))
             # Square root of number of samples is a general method to estimate the max number of intervals.
-            for number_intervals in range(
-                1,
-                max_number_intervals,
-            ):
+            for number_intervals in range(1, max_number_intervals + 1):
                 variable_data = self.calculate_variable_probabilities(
                     variable=variable, number_intervals=number_intervals
                 )
@@ -123,27 +141,36 @@ class UncertaintyOptimisation:
                     self.weight_confidence,
                     self.weight_overlap,
                 )
+                if variable == "beta":
+                    current_metric = self.calculate_metric(
+                        confidences_grid,
+                        errors_grid,
+                        self.weight_confidence,
+                        self.weight_overlap,
+                    )
 
                 # Update best configuration if the metric is improved
                 if current_metric > best_metric:
                     best_metric = current_metric
                     best_config = (confidences_grid, errors_grid)
 
-            self.calculate_variable_probabilities(variable, len(best_config[0]))
-        # 4. Modify data for plotting
+            if best_config:
+                self.calculate_variable_probabilities(variable, len(best_config[0]))
+
+        # Modify data for plotting
         self.plotting_data = self.modify_data(self.variable_data)
 
     def calculate_metric(self, confidences, errors, weight_confidence, weight_overlap):
         """Calculate a metric to evaluate the number of intervals.
 
-        :param confidences: Confidence values for each intervals.
+        :param confidences: Confidence values for each interval.
         :type confidences: np.array
-        :param errors: Error values for the confidence of each array.
+        :param errors: Error values for the confidence of each interval.
         :type errors: np.array
-        :param weight_confidence: Weighting factor which favours the highest confidence.
+        :param weight_confidence: Weighting factor which favors the highest confidence.
         :type weight_confidence: float
-        :param weight_overlap: Weighting factor which favours no error overlap.
-        :type weight_overlap: flaot
+        :param weight_overlap: Weighting factor which favors no error overlap.
+        :type weight_overlap: float
         :return: The value of the metric.
         :rtype: float
         """
@@ -153,9 +180,8 @@ class UncertaintyOptimisation:
         )
         return metric
 
-    # Define a function to calculate the overlap between intervals
     def overlap(self, confidences, errors):
-        """Calculate the overlap between intervals (union of intervals)
+        """Calculate the overlap between intervals (union of intervals).
 
         :param confidences: Confidence of each interval.
         :type confidences: np.array
@@ -175,12 +201,44 @@ class UncertaintyOptimisation:
             union_area = min(
                 confidences[i] + errors[i], confidences[j] + errors[j]
             ) - max(confidences[i] - errors[i], confidences[j] - errors[j])
-            overlaps.append(overlap_area / union_area)
             overlaps.append(
                 overlap_area / union_area if union_area != 0 else 0
             )  # Handle division by zero
-
         return sum(overlaps)
+
+    def calculate_variable_probabilities(self, variable, number_intervals):
+        """Placeholder function to calculate variable probabilities.
+
+        This function should be implemented with the actual logic to calculate interval probabilities.
+
+        :param variable: The variable for which probabilities are calculated.
+        :type variable: str
+        :param number_intervals: The number of intervals to use.
+        :type number_intervals: int
+        :return: An object containing interval confidence and uncertainty.
+        """
+
+        # Placeholder implementation; replace with actual logic
+        class VariableData:
+            def __init__(self):
+                self.interval_confidence = np.random.rand(number_intervals)
+                self.interval_confidence_uncertainty = (
+                    np.random.rand(number_intervals) * 0.1
+                )
+
+        return VariableData()
+
+    def modify_data(self, variable_data):
+        """Placeholder function to modify data for plotting.
+
+        This function should be implemented with the actual logic to modify data.
+
+        :param variable_data: The data to be modified.
+        :type variable_data: dict
+        :return: Modified data ready for plotting.
+        """
+        # Placeholder implementation; replace with actual logic
+        return variable_data
 
     def _sort_converged_data_by_variable(self, variable: str):
         """Sort the a dataframe by a given variable.
@@ -442,7 +500,7 @@ class UncertaintyOptimisation:
         """
         data = self._convert_variable_data_to_dataframe(variable_data)
         # Joint probability calculations
-        self._calculate_jointerval_confidence(data)
+        self._calculate_interval_confidence(data)
         # Filter dataframes based on design and max probability values
         max_confidence_filtered_df = self._filter_dataframe_by_index(
             self.converged_data, data, "max_confidence_index", self.input_names
@@ -471,7 +529,7 @@ class UncertaintyOptimisation:
         data.set_index("name", inplace=True)
         return data
 
-    def _calculate_jointerval_confidence(self, data):
+    def _calculate_interval_confidence(self, data):
         """Calculate the confidence of the original design space, then the confidence of the optimised space."""
         # Joint input probability is the confidence of your original bounds.
         # The confidence of each interval is summed, and divided by the number of intervals. This is averaged for the
@@ -523,9 +581,12 @@ class UncertaintyOptimisation:
         :return: interval confidence
         :rtype: list
         """
-        # Convert input lists to numpy arrays
-        converged_interval_count = np.array(converged_interval_count)
-        interval_sample_counts = np.array(interval_sample_counts)
+        # Convert input lists to numpy arrays with float type
+        converged_interval_count = np.array(converged_interval_count, dtype=float)
+        interval_sample_counts = np.array(interval_sample_counts, dtype=float)
+
+        # Handle intervals with zero samples by setting them to NaN temporarily
+        interval_sample_counts[interval_sample_counts == 0] = np.nan
 
         # Calculate interval confidence
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -536,23 +597,27 @@ class UncertaintyOptimisation:
         # Handle cases where division by zero or NaN values occurred
         interval_confidence[np.isnan(interval_confidence)] = 0  # Replace NaN with 0
         interval_confidence[np.isinf(interval_confidence)] = 0  # Replace inf with 0
+
         delta_converged_interval_count = np.sqrt(converged_interval_count)
         delta_interval_sample_counts = np.sqrt(interval_sample_counts)
-        # Suppress this for now, find a solution later :~)
+
+        # Suppress warnings for invalid operations
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            # Your division operation here
             delta_c_over_c = np.sqrt(
                 (delta_converged_interval_count / converged_interval_count) ** 2
                 + (delta_interval_sample_counts / interval_sample_counts) ** 2
             )
+
+        # Handle NaN values in delta_c_over_c
+        delta_c_over_c[np.isnan(delta_c_over_c)] = 0  # Replace NaN with 0
+        delta_c_over_c[np.isinf(delta_c_over_c)] = 0  # Replace inf with 0
+
         delta_confidence = interval_confidence * delta_c_over_c
 
-        for i in range(len(interval_confidence - 1)):
-            if interval_confidence[i] == float("inf") or interval_confidence[
-                i
-            ] == float("-inf"):
-                interval_confidence[i] = 0.0
+        # Ensure no infinite values in interval confidence
+        interval_confidence[np.isinf(interval_confidence)] = 0
+
         return interval_confidence, delta_confidence
 
     def _filter_dataframe_by_index(
@@ -878,13 +943,15 @@ class UncertaintyOptimisation:
 
         return subgraph
 
-    def plot_network(self, networkx, fig_width_height=800):
+    def plot_network(
+        self, networkx, itv=None, fig_width_height=800, correlation_threshold=0.0
+    ):
         """Create a Bokeh network plot. Clickable nodes.
 
         :param networkx: networkx data
         :type networkx: networkx
-        :param correlation_matrix: correlation matrix produced by the copula
-        :type correlation_matrix: dict
+        :param correlation_threshold: threshold below which correlations are ignored
+        :type correlation_threshold: float
         """
         variable_data = self._convert_variable_data_to_dataframe(self.variable_data)
         variable_data = variable_data[variable_data.index.isin(self.included_nodes)]
@@ -911,7 +978,7 @@ class UncertaintyOptimisation:
         )
 
         graph_renderer.node_renderer.data_source.data["node_color"] = [
-            PuBuGn5[3] if n in self.uq_data.itv else PuBuGn5[2]
+            PuBuGn5[3] if n in itv else PuBuGn5[2]
             for n in graph_renderer.node_renderer.data_source.data["name"]
         ]
         plot = figure(
@@ -972,18 +1039,34 @@ class UncertaintyOptimisation:
             text_baseline="middle",
         )
         plot.add_layout(labels)
-        # Draw edge labels separately ... Todo: find a nice way to present this data.
+
+        # Filter edges based on the correlation_threshold
+        edges_to_keep = [
+            (i, j)
+            for i, j in networkx.edges()
+            if abs(networkx[i][j]["weight"]) >= correlation_threshold
+        ]
+
+        # Apply the thresholded edges to the graph layout
         edge_labels = {
-            (i, j): f"{networkx[i][j]['weight']:.2f}" for i, j in networkx.edges()
+            edge: f"{networkx[edge[0]][edge[1]]['weight']:.2f}"
+            for edge in edges_to_keep
         }
+
+        # Modify the edge data for those edges that meet the threshold
+        edge_data = graph_renderer.edge_renderer.data_source.data
+        edge_data["start"] = [mapping[i] for i, j in edges_to_keep]
+        edge_data["end"] = [mapping[j] for i, j in edges_to_keep]
+        edge_data["weight"] = [networkx[i][j]["weight"] for i, j in edges_to_keep]
+
         # Add gray lines when nothing is highlighted.
         graph_renderer.edge_renderer.glyph = MultiLine(
             line_color="#CCCCCC", line_alpha=0.8, line_width=5
         )
-        edge_data = graph_renderer.edge_renderer.data_source.data
+
         # Add red lines for positive correlation, blue for negative. Visible on highlight.
         edge_data["line_color"] = [
-            PuBu5[0] if w < -0.0 else PuRd5[0] for w in edge_data["weight"]
+            PuBu5[0] if w < 0 else PuRd5[0] for w in edge_data["weight"]
         ]
         graph_renderer.edge_renderer.selection_glyph = MultiLine(
             line_color="line_color", line_width=5
@@ -996,6 +1079,7 @@ class UncertaintyOptimisation:
         graph_renderer.inspection_policy = NodesAndLinkedEdges()
 
         plot.renderers.append(graph_renderer)
+
         # Create a custom legend
         negative_circle = plot.circle(
             x=0,
@@ -1005,11 +1089,11 @@ class UncertaintyOptimisation:
             fill_color=PuBu5[0],
             legend_label="Negative",
         )
-        negative_circle = plot.circle(
+        positive_circle = plot.circle(
             x=0,
             y=0,
             size=0,
-            name="Negative",
+            name="Positive",
             fill_color=PuRd5[0],
             legend_label="Positive",
         )
