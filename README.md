@@ -14,9 +14,9 @@ What questions can you answer with this suite?
 
 # What is the probability of powerplant failure subject to uncertainty?
 
-#####  When there is uncertainty in design parameters a powerplant is at risk of failure, we want to know this probability.
+When there is uncertainty in design parameters a powerplant is at risk of failure, we want to know this probability.
 
-## Which uncertain parameters are likely to lead to failure?
+Which uncertain parameters are likely to lead to failure?
 
 
 
