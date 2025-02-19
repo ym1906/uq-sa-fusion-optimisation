@@ -18,6 +18,10 @@ When there is uncertainty in design parameters a powerplant is at risk of failur
 
 Which uncertain parameters are likely to lead to failure?
 
+### How can under-performance be recovered?
+
+Under performance in design parameters is recovered by control variables. This is constrained by design variables.
+
 
 
 ## Demonstration of UQ tool suite
