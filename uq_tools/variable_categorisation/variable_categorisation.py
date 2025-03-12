@@ -372,6 +372,152 @@ def create_sample_space(variables, multiplier, output_file, variables_to_extract
     with open(output_file, 'w') as f:
         json.dump(params, f, indent=4)
 
+def extract_variables(data):
+    """
+    Extract all 'variable' values from the provided JSON data and put them in a list.
+
+    :param data: Dictionary containing the JSON data.
+    :type data: dict
+    :return: List of all 'variable' values.
+    :rtype: list
+    """
+    variables = []
+    for category, items in data.items():
+        for item in items:
+            variables.append(item["variable"])
+    return variables
+
+def create_variable_template(variables_list, input_data, filename):
+    """
+    Create a string with the specified format from the variables list,
+    append it to the input data, and save it to a file with a ".template" extension.
+
+    :param variables_list: List of variable names.
+    :type variables_list: list
+    :param input_data: Initial data to append the template data to.
+    :type input_data: str
+    :param filename: Name of the file to save the data to.
+    :type filename: str
+    :return: None
+    """
+    variable_string = "* Uncertainties: overwrites any previous values\n"
+    for variable in variables_list:
+        if "(" in variable:
+            formatted_variable = variable.replace("(", "_").replace(")", "")
+            variable_string += f"{variable} = ${formatted_variable}\n"
+        else:
+            variable_string += f"{variable} = ${variable}\n"
+    
+    # Append the variable string to the input data
+    output_data = input_data + "\n" + variable_string
+    
+    # Strip ".DAT" and replace with ".template"
+    if filename.endswith(".DAT"):
+        filename = filename[:-4] + ".template"
+    elif not filename.endswith(".template"):
+        filename += ".template"
+    
+    # Save the output data to the file
+    with open(filename, 'w') as file:
+        file.write(output_data)
+
+
+def remove_asterisk_and_blank_lines(input_file, output_file, keep_values=True):
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w') as file:
+        for line in lines:
+            stripped_line = line.strip()
+            if stripped_line and not stripped_line.startswith('*'):
+                if '=' in stripped_line:
+                    left_part, right_part = stripped_line.split('=', 1)
+                    left_part = left_part.strip()
+                    if keep_values:
+                        right_part = right_part.strip()
+                        file.write(f"{left_part} = {right_part}\n")
+                    else:
+                        file.write(f"{left_part} =\n")
+                else:
+                    file.write(line + '\n')  # Write the line as is if there's no '='
+
+
+def strip_value_from_line(input_file, output_file):
+    """Prepare IN.DAT for file
+
+    :param input_file: _description_
+    :type input_file: _type_
+    :param output_file: _description_
+    :type output_file: _type_
+    """
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w') as file:
+        for line in lines:
+            stripped_line = line.strip()
+            if '=' in stripped_line:
+                left_part = stripped_line.split('=')[0].strip()
+                # Check for exceptions
+                if left_part in ('ixc', 'icc'):
+                    file.write(line)  # Write the line as is for ixc and icc
+                else:
+                    description = stripped_line.split('=')[1].strip()  # Keep the description part
+                    file.write(f"{left_part} =\n")  # Write left part with '=' and no value
+            else:
+                file.write(line)  # Write the line as is if there's no '='
+
+def remove_after_asterisk(input_file, output_file):
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w') as file:
+        for line in lines:
+            if '*' in line:
+                line = line.split('*')[0].strip() + '\n'
+            file.write(line)
+
+def write_list_to_json(data_list, filename):
+    """
+    Write a list to a JSON file.
+
+    :param data_list: List of data to write to the JSON file.
+    :type data_list: list
+    :param filename: Name of the JSON file to save the data to.
+    :type filename: str
+    :return: None
+    """
+    with open(filename, 'w') as json_file:
+        json.dump(data_list, json_file, indent=4)
+
+def wipe_data(d, output_file=None):
+    """
+    Recursively sets all non-dictionary and non-list values in a dictionary or list to None.
+    Optionally writes the wiped data to a new JSON file.
+
+    Args:
+        d (dict or list): The dictionary or list to be wiped.
+        output_file (str, optional): The path to the file where the wiped data will be saved. Defaults to None.
+
+    Returns:
+        None: The function modifies the input dictionary or list in place. If output_file is provided, the wiped data is saved to the specified file.
+    """
+    if isinstance(d, dict):
+        for key in d:
+            if isinstance(d[key], (dict, list)):
+                wipe_data(d[key])
+            else:
+                d[key] = None
+    elif isinstance(d, list):
+        for i in range(len(d)):
+            if isinstance(d[i], (dict, list)):
+                wipe_data(d[i])
+            else:
+                d[i] = None
+
+    if output_file:
+        with open(output_file, 'w') as f:
+            json.dump(d, f, indent=4)
 def main():
 
     # Specify the paths to the dictionary files
