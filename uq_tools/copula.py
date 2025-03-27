@@ -61,13 +61,31 @@ class Copula:
         input_sample_size = input_sample_size or len(self.input_data)
         synthetic_sample_size = synthetic_sample_size or len(self.input_data)
 
-        # Sample some random data from the dataset. Now we are just looking at converged samples.
+        # Ensure a reasonable sample size to avoid constant columns due to small samples
+        input_sample_size = max(100, input_sample_size)
+
+        # Sample some random data from the dataset
         self.sampled_input_data = self.input_data[self.variable_names].sample(
-            n=input_sample_size, random_state=1
+            n=input_sample_size, random_state=42
         )
-        unique_array = unique_cols(self.sampled_input_data)
+
+        # Remove constant columns (columns with a single unique value)
+        constant_cols = self.sampled_input_data.nunique() == 1
+        if constant_cols.any():
+            print(
+                f"Removing constant columns: {self.sampled_input_data.columns[constant_cols].tolist()}"
+            )
+            self.sampled_input_data = self.sampled_input_data.loc[:, ~constant_cols]
+
+        # Ensure `unique_cols` properly identifies constant columns
+        unique_array = (
+            self.sampled_input_data.nunique() <= 1
+        )  # Alternative fix for unique_cols
         self.sampled_input_data = self.sampled_input_data.loc[:, ~unique_array]
+            "Comments": "q95=3 limit, could be explored"
+        # Fit the copula model
         self.copula.fit(self.sampled_input_data)
+
         # Sample from the copula to create synthetic data.
         self.synthetic_data = self.copula.sample(synthetic_sample_size)
 
@@ -226,3 +244,32 @@ def unique_cols(df):
     """
     a = df.to_numpy()
     return (a[0] == a).all(0)
+
+
+def filter_correlation_matrix(corr_matrix, threshold=0.5):
+    """
+    Filters a correlation matrix to show only correlations above a certain absolute threshold.
+
+    Parameters:
+    corr_matrix (pd.DataFrame): The correlation matrix to filter.
+    threshold (float): The correlation threshold. Only values above this will be returned (in absolute value).
+
+    Returns:
+    pd.DataFrame: A DataFrame with the filtered correlation pairs.
+    """
+    # Get the absolute value of the correlation matrix
+    corr_matrix_abs = corr_matrix.abs()
+
+    # Create a mask to filter out values below the threshold
+    mask = corr_matrix_abs >= threshold
+
+    # Filter the correlation matrix using the mask
+    filtered_corr = corr_matrix.where(mask)
+
+    # Remove self-correlations (diagonal elements)
+    filtered_corr = filtered_corr.where(~np.eye(filtered_corr.shape[0], dtype=bool))
+
+    # Drop rows and columns where all values are NaN (no correlation pairs)
+    filtered_corr = filtered_corr.dropna(how="all").dropna(axis=1, how="all")
+
+    return filtered_corr

@@ -45,74 +45,96 @@ def extract_iteration_variables(data):
 
     return variables
 
-
 def process_variable_data(data, itv_path, output_path):
     """
     Processes variable data from a given string and categorizes them into iteration variables and other variables.
-
-    This function reads a JSON file containing variable names and their indices, then processes a multi-line string
-    to extract variables based on specific patterns. The extracted variables are categorized into iteration variables
-    and other variables, and the results are saved to a specified output file in JSON format.
-
-    :param data: A multi-line string containing variable data to be processed.
-    :type data: str
-    :param itv_path: Path to the JSON file containing variable names and their indices.
-    :type itv_path: str
-    :param output_path: Path to the output file where the processed variables will be saved in JSON format.
-    :type output_path: str
-    :return: A tuple containing two dictionaries: iteration variables and other variables.
-    :rtype: tuple(dict, dict)
     """
-    ixc_pattern = r"ixc\s*=\s*(\d+)"
-    boundu_pattern = r"boundu\((\d+)\)\s*=\s*([^;]*)"
-    boundl_pattern = r"boundl\((\d+)\)\s*=\s*([^;]*)"
+    def convert_variable_names_to_num(variable_names):
+        """
+        Converts the keys of the variable_names dictionary from strings to integers.
+
+        :param variable_names: A dictionary with variable names as keys and index as values in string format.
+        :type variable_names: dict
+        :return: A new dictionary with the variable names as keys and index as integer values.
+        :rtype: dict
+        """
+        return {var: int(index) for var, index in variable_names.items()}
+    
+    ixc_pattern = re.compile(r"ixc\s*=\s*(\d+)")
+    boundu_pattern = re.compile(r"boundu\((\d+)\)\s*=\s*([^;]*)")
+    boundl_pattern = re.compile(r"boundl\((\d+)\)\s*=\s*([^;]*)")
+    var_pattern = re.compile(r"(\w+)\s*=\s*([^;]*)")
 
     ixc_variables = {}
     other_variables = {}
 
+    # Load variable names from JSON
     with open(itv_path, "r") as file:
         variable_names = json.load(file)
+    variable_names = convert_variable_names_to_num(variable_names)
 
+    def convert_to_number(value):
+        """Convert value to int or float if possible."""
+        try:
+            return float(value) if "." in value else int(value)
+        except ValueError:
+            return value.strip()
+
+    # Process each line
     for line in data.strip().split("\n"):
-        ixc_match = re.search(ixc_pattern, line)
-        boundu_match = re.search(boundu_pattern, line)
-        boundl_match = re.search(boundl_pattern, line)
+        ixc_match = ixc_pattern.search(line)
+        boundu_match = boundu_pattern.search(line)
+        boundl_match = boundl_pattern.search(line)
+        var_match = var_pattern.match(line)
 
         if ixc_match:
-            index = ixc_match.group(1)
-            var_name = next(
-                (name for name, num in variable_names.items() if num == index), None
-            )
+            # Capture the ixc index (like 2) but we don't capture the value here
+            index = int(ixc_match.group(1))
+            var_name = next((name for name, num in variable_names.items() if num == index), None)
             if var_name:
-                ixc_variables[var_name] = index
-        elif boundu_match:
+                # Initialize ixc variable without a value, to be updated later
+                ixc_variables[var_name] = {"index": index, "value": None, "boundu": None, "boundl": None}
+
+        if boundu_match:
             index, value = boundu_match.groups()
-            ixc_variables[f"boundu({index})"] = value.strip()
-        elif boundl_match:
+            index = int(index)
+            value = convert_to_number(value)
+            var_name = next((name for name, num in variable_names.items() if num == index), None)
+            if var_name:
+                # Update the boundu for the correct variable
+                if var_name in ixc_variables:
+                    ixc_variables[var_name]["boundu"] = value
+
+        if boundl_match:
             index, value = boundl_match.groups()
-            other_variables[f"boundl({index})"] = value.strip()
-        else:
-            # Capture all other variables
-            var_match = re.match(r"(\w+)\s*=\s*([^;]*)", line)
-            if var_match:
-                var_name, value = var_match.groups()
-                # Convert value to float if it's a number
-                try:
-                    value = float(value)
-                except ValueError:
-                    pass
-                other_variables[var_name] = value
-                # other_variables[var_name] = value.strip()
-   # Ensure the output directory exists
-    output_dir = os.path.dirname(output_path)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+            index = int(index)
+            value = convert_to_number(value)
+            var_name = next((name for name, num in variable_names.items() if num == index), None)
+            if var_name:
+                # Update the boundl for the correct variable
+                if var_name in ixc_variables:
+                    ixc_variables[var_name]["boundl"] = value
+
+        if var_match and not any((ixc_match, boundu_match, boundl_match)):
+            var_name, value = var_match.groups()
+            value = convert_to_number(value)
+            other_variables[var_name] = {"value": value}  # Add value property
+
+    # Now, link the actual variable value to its ixc reference
+    for var_name, var_data in other_variables.items():
+        # Check if this variable corresponds to any ixc index
+        if var_name in ixc_variables:
+            ixc_variables[var_name]["value"] = var_data["value"]
+
+    # Ensure the output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     # Save the processed variables to the output file
     with open(output_path, "w") as json_file:
         json.dump({"ixc_variables": ixc_variables, "other_variables": other_variables}, json_file, indent=4)
 
-    return ixc_variables, other_variables 
+    return ixc_variables, other_variables
+
 
 def save_to_json(data, filename):
     """
@@ -144,24 +166,24 @@ def categorize_associated_parameters(categories, fvalue_mapping, category_map):
                     category_map[param] = "Unknown Category"
     return categories
 
-
 def update_descriptions(categories, descriptions):
     """
     Update variable descriptions in categories with those from descriptions.
-    :param categories: JSON data from variable_categories.json
-    :param descriptions: JSON data from variables.json
-    :return: Updated categories data
+    
+    :param categories: Dictionary where categories contain dictionaries of variables.
+    :param descriptions: Dictionary mapping filenames to variable descriptions.
+    :return: Updated categories data.
     """
-    # Iterate through each category and each variable in that category
+    # Iterate through each category
     for category, variables in categories.items():
-        for var in variables:
-            var_name = var["Variable"]
-            # Find the corresponding description in the descriptions JSON
-            for filename, vars_dict in descriptions.items():
-                if var_name in vars_dict:
-                    # Update description if found
-                    var["Description"] = vars_dict[var_name]
-                    break  # Exit once description is updated
+        if isinstance(variables, dict):  # Ensure it's a variable dictionary
+            for var_name, details in variables.items():
+                # Search for the variable in descriptions
+                for filename, vars_dict in descriptions.items():
+                    if var_name in vars_dict:
+                        # Update the description
+                        details["Description"] = vars_dict[var_name]
+                        break  # Stop searching once updated
     return categories
 
 
@@ -206,17 +228,29 @@ def parse_file(file_path):
 
     return result_dict
 
-
-def load_categories(filename):
-    with open(filename, "r") as file:
-        data = json.load(file)
-
+def load_categories(categories_filename):
+    """
+    Load categories from the provided JSON file and create a category map.
+    
+    :param categories_filename: Path to the category mapping file.
+    :return: category_map and description_map (if available)
+    """
+    with open(categories_filename, "r") as f:
+        categories_data = json.load(f)
+    
+    # Create the category_map by iterating through categories
     category_map = {}
-    for category, variables in data.items():
-        for variable_info in variables:
-            variable_name = variable_info["Variable"]
-            category_map[variable_name] = category
-    return category_map
+    description_map = {}  # You may also need to handle descriptions similarly
+    
+    for category, variables in categories_data.items():
+        for var in variables:
+            category_map[var] = category
+
+    return category_map, description_map
+
+# def load_categories(filename):
+#     with open(filename, 'r') as file:
+#         return {entry['Variable']: entry['Description'] for entry in json.load(file)}
 
 
 def categorize_variables(
@@ -226,71 +260,95 @@ def categorize_variables(
 ):
     """
     Categorizes variables into predefined categories based on their descriptions and a category mapping.
-
-    This function loads a category mapping from a JSON file, then categorizes a list of variables into predefined
-    categories such as "Design Variables", "Control Variables", "Design Parameters", and "Unknown Category".
-    It also associates each variable with its source and description from the provided descriptions dictionary.
-
-    :param variable_list: List of variables to be categorized.
-    :type variable_list: list
-    :param descriptions: Dictionary containing variable descriptions, with filenames as keys and variable descriptions as values.
-    :type descriptions: dict
-    :param categories_filename: Path to the JSON file containing the category mapping. Defaults to a specific path.
-    :type categories_filename: str, optional
-    :return: A dictionary with categorized variables, each category containing a description and a list of variables with their sources and descriptions.
-    :rtype: dict
+    Now includes bounds (boundl and boundu) and value properties from the variable_list.
+    
+    :param variable_list: Dictionary where variable names map to their attributes, including bounds and values.
+    :param descriptions: Dictionary containing variable descriptions and category mapping.
+    :param categories_filename: Path to the JSON file containing the category mapping.
+    :return: A dictionary with categorized variables, where each category contains a dictionary of variables.
     """
-    category_map = load_categories(categories_filename)
-
+    category_map, description_map = load_categories(categories_filename)
+    # Initialize result with all categories
     result = {
-        "Design Variables": {"description": "Variables that define the design of the system.", "variables": {}},
-        "Control Variables": {"description": "Variables that control the operation of the system.", "variables": {}},
-        "Design Parameters": {"description": "Parameters that influence the design but are not directly controlled.", "variables": {}},
-        "Unknown Category": {"description": "Variables that do not fit into any known category.", "variables": {}},
+        "Design Variables": {},
+        "Control Variables": {},
+        "Design Parameters": {},
+        "Unknown Category": {},
     }
-
-    for var in variable_list:
-        category = category_map.get(var, "Unknown Category")
+    
+    for var_name, var_data in variable_list.items():
+        # Retrieve category from category_map
+        category = category_map.get(var_name)
+        
+        # If category is None, log the variable and categorize as "Unknown Category"
+        if category is None:
+            category = "Unknown Category"
+        
+        # Ensure the category exists in the result dictionary
         if category not in result:
-            result[category] = {"description": "No description available.", "variables": {}}
-
-        found = False
+            result[category] = {}
+        
+        # Find description in the descriptions dictionary
+        description_found = None
         for filename, vars_dict in descriptions.items():
-            if var in vars_dict:
-                source = filename.replace(".f90", "")
-                if source not in result[category]["variables"]:
-                    result[category]["variables"][source] = []
-                if not any(v['variable'] == var for v in result[category]["variables"][source]):
-                    result[category]["variables"][source].append({"variable": var, "description": vars_dict[var]})
-                found = True
+            if var_name in vars_dict:
+                description_found = vars_dict[var_name]
                 break
-        if not found:
-            if "Unknown Source" not in result[category]["variables"]:
-                result[category]["variables"]["Unknown Source"] = []
-            if not any(v['variable'] == var for v in result[category]["variables"]["Unknown Source"]):
-                result[category]["variables"]["Unknown Source"].append({"variable": var, "description": "No description available."})
-
-    result = {k: v for k, v in result.items() if v["variables"]}
-
+        
+        # Default to description_map if not found
+        description = description_found if description_found else description_map.get(var_name, "No description available.")
+        
+        # Assign values to the variable in the result dictionary
+        result[category][var_name] = {
+            "Index": var_data.get("Index", None),
+            "Description": description,
+            "boundl": var_data.get("boundl", None),
+            "boundu": var_data.get("boundu", None),
+            "value": var_data.get("value", None),
+        }
+    
+    # Clean up the result by removing empty categories
+    result = {k: v for k, v in result.items() if v}
+    
     return result
 
-def convert_to_markdown_table(categorized_variables):
-    markdown = "# Variable Categorization\n\n"
+
+
+def convert_to_markdown_table(categorized_variables, include_bounds=True):
+    markdown = "# Variable Categorization\n\n"  # Add double newline for proper section spacing
     
     for category, details in categorized_variables.items():
-        markdown += f"## {category}\n"
-        markdown += f"{details['description']}\n\n"
+        markdown += f"## {category}\n\n"  # Add double newline after category header
         
-        markdown += "| **Variable** | **Description** | **Source** |\n"
-        markdown += "|----------|-------------|--------|\n"
+        # Add headers for the new columns: bounds and value
+        if include_bounds:
+            markdown += "| **Variable** | **Description** | **Lower Bound** | **Upper Bound** | **Value** |\n"
+            markdown += "|--------------|-----------------|-----------------|-----------------|-----------|\n"
+        else:
+            markdown += "| **Variable** | **Description** | **Value** |\n"
+            markdown += "|--------------|-----------------|-----------|\n"
         
-        for source, variables in details["variables"].items():
-            for var_info in variables:
-                markdown += f"| `{var_info['variable']}` | {var_info['description']} | {source} |\n"
+        # Loop through each variable in the category
+        for var_name, var_info in details.items():
+            # Ensure all required keys are in the variable info, else use 'N/A'
+            description = var_info.get("Description", "No description available.")
+            boundl = var_info.get("boundl", "N/A")
+            boundu = var_info.get("boundu", "N/A")
+            value = var_info.get("value", "N/A")
+            
+            # Add the variable data to the markdown table
+            if include_bounds:
+                markdown += f"| `{var_name}` | {description} | {boundl} | {boundu} | {value} |\n"
+            else:
+                markdown += f"| `{var_name}` | {description} | {value} |\n"
         
-        markdown += "\n"
+        # Double newline after each category to ensure spacing between sections
+        markdown += "\n\n"
     
     return markdown
+
+
+
 
 def update_variable_names_in_dict(data_dict, obsolete_dict):
     """
@@ -329,13 +387,14 @@ def update_variable_names_in_json(data, obsolete_dict):
             item["Variable"] = obsolete_dict[old_name]
     return data
 
-def create_sample_space(variables, multiplier, output_file, variables_to_extract=None):
+def create_sample_space(variables, multiplier, output_file, bounds_dict, variables_to_extract=None):
     """
     Create a dictionary of parameters with min, max, and default values for float variables.
 
     This function iterates through the items in the `variables` dictionary, identifies float variables,
     and calculates their min and max values based on the provided multiplier. The resulting parameters
-    are saved to the specified output file in JSON format.
+    are saved to the specified output file in JSON format. Parameters that do not meet the criteria are
+    stored in a variable.
 
     :param variables: Dictionary containing variable data.
     :type variables: dict
@@ -343,19 +402,41 @@ def create_sample_space(variables, multiplier, output_file, variables_to_extract
     :type multiplier: float
     :param output_file: Path to the output file where the parameters will be saved in JSON format.
     :type output_file: str
+    :param bounds_dict: Dictionary containing bounds for variables.
+    :type bounds_dict: dict
     :param variables_to_extract: List of variables to extract from variables. If None, use all variables.
     :type variables_to_extract: list, optional
+    :return: Dictionary of removed parameters.
+    :rtype: dict
     """
     params = {}
+    removed_params = {}
+
     for key, value in variables.items():
         if variables_to_extract is None or key in variables_to_extract:
             if isinstance(value, float):
-                params[key] = {
-                    "type": "float",
-                    "min": value * (1 - multiplier),
-                    "max": value * (1 + multiplier),
-                    "default": value
-                }
+                min_value = value * (1 - multiplier)
+                max_value = value * (1 + multiplier)
+                
+                # Check against bounds_dict
+                if key in bounds_dict:
+                    min_value = max(min_value, bounds_dict[key]["lb"])
+                    max_value = min(max_value, bounds_dict[key]["ub"])
+                
+                if max_value > min_value:
+                    params[key] = {
+                        "type": "float",
+                        "min": min_value,
+                        "max": max_value,
+                        "default": value
+                    }
+                else:
+                    removed_params[key] = {
+                        "type": "float",
+                        "min": min_value,
+                        "max": max_value,
+                        "default": value
+                    }
 
     # Add the last entry
     params["vary_param"] = {
@@ -371,6 +452,22 @@ def create_sample_space(variables, multiplier, output_file, variables_to_extract
     # Write the new JSON to the specified output file
     with open(output_file, 'w') as f:
         json.dump(params, f, indent=4)
+
+    return removed_params
+
+def filter_variables(variable_list, removed_params):
+    """
+    Remove any variables from the list if they appear in the removed_params dictionary.
+
+    :param variable_list: List of variables to be filtered.
+    :type variable_list: list
+    :param removed_params: Dictionary of removed parameters.
+    :type removed_params: dict
+    :return: Filtered list of variables.
+    :rtype: list
+    """
+    filtered_list = [var for var in variable_list if var not in removed_params]
+    return filtered_list
 
 def extract_variables(data):
     """
@@ -434,13 +531,35 @@ def remove_asterisk_and_blank_lines(input_file, output_file, keep_values=True):
                     left_part, right_part = stripped_line.split('=', 1)
                     left_part = left_part.strip()
                     if keep_values:
-                        right_part = right_part.strip()
+                        # Extract the value before any additional text
+                        right_part = right_part.split()[0].strip()
                         file.write(f"{left_part} = {right_part}\n")
                     else:
                         file.write(f"{left_part} =\n")
                 else:
                     file.write(line + '\n')  # Write the line as is if there's no '='
 
+
+def swap_d_to_e(input_file, output_file):
+    """
+    Swap 'D' and 'd' with 'E' in the values of the input file and save to the output file.
+
+    :param input_file: Path to the input file.
+    :type input_file: str
+    :param output_file: Path to the output file where the modified content will be saved.
+    :type output_file: str
+    """
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w') as file:
+        for line in lines:
+            if '=' in line:
+                left_part, right_part = line.split('=', 1)
+                right_part = right_part.replace('D', 'E').replace('d', 'E')
+                file.write(f"{left_part}={right_part}")
+            else:
+                file.write(line)
 
 def strip_value_from_line(input_file, output_file):
     """Prepare IN.DAT for file

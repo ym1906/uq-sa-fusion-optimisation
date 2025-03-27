@@ -1,5 +1,5 @@
 {
-    "aspect": "1",
+    "aspect": 1,
     "bt": "2",
     "rmajor": "3",
     "te": "4",
@@ -42,7 +42,7 @@
     "dr_cs_tf_gap": "42",
     "fvsbrnni": "44",
     "fqval": "45",
-    "fpinj": "46",
+    "pinjmw": "46",
     "feffcd": "47",
     "fstrcase": "48",
     "fstrcond": "49",
@@ -153,5 +153,7 @@
     "beta_div": "170",
     "casths_fraction": "171",
     "casths": "172",
+    "f_tritium": "173",
+    "triang": "174",
     "DUMMY": "175"
 }

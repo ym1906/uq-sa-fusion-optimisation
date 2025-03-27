@@ -87,7 +87,7 @@ class UncertaintyData:
 
         return converged_data_with_weights
 
-    def load_data(self):
+    def load_data(self, skip_sq):
         """
         Loads data from the folder (if applicable) or uses the preloaded DataFrame.
         Search for HDF files and merge them if loading from a folder.
@@ -99,27 +99,52 @@ class UncertaintyData:
             # Load and merge data from HDF files in the folder
             print(f"Loading data from folder: {self.path_in}")
             self.uncertainties_df = self._load_h5_files()
+
         # Remove rows with any text values (non-numeric, non-NaN values)
         self.uncertainties_df = self.uncertainties_df[
-            self.uncertainties_df.map(
+            self.uncertainties_df.applymap(
                 lambda x: pd.api.types.is_numeric_dtype(type(x)) or pd.isna(x)
             )
         ]
-        unique_array = self._unique_cols(self.uncertainties_df)
+
+        # Get the unique columns mask and list from _unique_cols
+        unique_array, unique_cols = self._unique_cols(self.uncertainties_df)
+
+        # Drop columns that have a single unique value
         self.uncertainties_df = self.uncertainties_df.loc[:, ~unique_array]
+
         # Check if the columns are MultiIndex
         if isinstance(self.uncertainties_df.columns, pd.MultiIndex):
             # Rename columns to remove the second element of the tuple
             self.uncertainties_df.columns = [
                 col[0] for col in self.uncertainties_df.columns
             ]
+
+        # Drop rows with NaN in specified columns and reset index
         self.uncertainties_df = self.uncertainties_df.dropna(
             subset=self.sampled_variables + ["ifail"]
         ).reset_index(drop=True)
 
+        # Store or print the list of dropped columns
+        self.dropped_columns = unique_cols
         # Transformations on specific columns
-        # if "sqsumsq" in self.uncertainties_df.columns:
-        #     self.uncertainties_df["sqsumsq"] = np.log(self.uncertainties_df["sqsumsq"])
+
+        def round_to_2_sig_figs(x):
+            if x == 0:
+                return 0
+            else:
+                return round(x, 1 - int(np.floor(np.log10(abs(x)))))
+
+        if skip_sq is False:
+            if "sqsumsq" in self.uncertainties_df.columns:
+                self.uncertainties_df["sqsumsq"] = np.log(
+                    self.uncertainties_df["sqsumsq"]
+                )
+                self.uncertainties_df["sqsumsq"] = self.uncertainties_df[
+                    "sqsumsq"
+                ].apply(round_to_2_sig_figs)
+        else:
+            pass
 
     def _load_h5_files(self):
         """
@@ -139,15 +164,22 @@ class UncertaintyData:
 
     def _unique_cols(self, df):
         """
-        Returns a boolean array indicating which columns have only unique values.
+        Identifies columns with only a single unique value and returns a boolean array
+        and the list of those column names, keeping only the first element if columns are tuples.
 
         Args:
             df (pd.DataFrame): The dataframe to check.
 
         Returns:
-            np.array: Boolean array, True if the column has a single unique value across all rows.
+            tuple: (boolean array, list of column names with single unique values)
         """
-        return df.apply(lambda x: x.nunique() == 1)
+        unique_cols_mask = df.apply(lambda x: x.nunique() == 1)
+        # Keep only the first part of the column name if it's a tuple
+        unique_cols_list = [
+            col[0] if isinstance(col, tuple) else col
+            for col in df.columns[unique_cols_mask]
+        ]
+        return unique_cols_mask, unique_cols_list
 
     def process_data(self):
         """Process the data, find the number of sampled variables, and clean the uncertainties dataframe."""
@@ -186,9 +218,10 @@ class UncertaintyData:
 
     def initialize_data(
         self,
+        skip_sq=False,
     ):
         """Runs data loading, processing, and separation of converged/unconverged in sequence."""
-        self.load_data()
+        self.load_data(skip_sq)
         self.process_data()
         self.separate_converged_unconverged()
 
@@ -795,6 +828,13 @@ process_variable_dict = {
     "powfmw": "Fusion Power (MW)",
     "cpttf": "TF coil current per turn (A)",
     "bktcycles": "No. fusion cycles to reach allowable blanket DPA",
-    "vv_stress_quench": "vacuum vessel stress",
-    "n_cycle": "n_cycle",
+    "vv_stress_quench": "Vacuum vessel stress",
+    "n_cycle": "Number of stress cycles",
+    "taueff": "Global thermal energy confinement time (sec)",
+    "etaiso": "Efficiency of FW and blanket coolant pump",
+    "etahtp": "Electrical efficiency of primary coolant pumps",
+    "bmxlim": "Maximum peak toroidal field (T)",
+    "vdalw": "Max voltage across TF coil during quench (kV)",
+    "fimp_14": "Tungsten impurity fraction",
+    "t_crack_vertical": "Inital vertical crack size (m)",
 }

@@ -1,0 +1,338 @@
+{
+    "Design Variables": [
+        {
+            "Variable": "aspect",
+            "Index": 1,
+            "Description": "Aspect Ratio"
+        },
+        {
+            "Variable": "rmajor",
+            "Index": 3,
+            "Description": "Plasma Major Radius (M)"
+        },
+        {
+            "Variable": "t_burn_min",
+            "Index": null,
+            "Description": "Minimum Burn Time (s)"
+        },
+        {
+            "Variable": "pnetelin",
+            "Index": null,
+            "Description": "Required Net Electric Power (MW)"
+        },
+        {
+            "Variable": "tfcth",
+            "Index": null,
+            "Description": "Inboard TF Coil Thickness"
+        },
+        {
+            "Variable": "ohcth",
+            "Index": null,
+            "Description": "Central Solenoid Thickness (m)"
+        },
+        {
+            "Variable": "oh_steel_frac",
+            "Index": null,
+            "Description": "Central Solenoid Steel Fraction"
+        },
+        {
+            "Variable": "tdmptf",
+            "Index": null,
+            "Description": "Fast Discharge Time for TF Quench"
+        },
+        {
+            "Variable": "thkcas",
+            "Index": 57,
+            "Description": "TF Coil Casing Thickness"
+        },
+        {
+            "Variable": "thwcndut",
+            "Index": 58,
+            "Description": "Thickness Conduit"
+        },
+        {
+            "Variable": "fcutfsu",
+            "Index": null,
+            "Description": "Copper Fraction in TF Conductor Cable"
+        },
+        {
+            "Variable": "cpttf",
+            "Index": null,
+            "Description": "TF coil current per turn"
+        },
+        {
+            "Variable": "bore",
+            "Index": null,
+            "Description": "Central Solenoid Inboard Radius"
+        },
+        {
+            "Variable": "neped",
+            "Index": null,
+            "Description": "Electron density at pedestal"
+        },
+        {
+            "Variable": "ne0",
+            "Index": null,
+            "Description": "Central Electron Density"
+        },
+        {
+            "Variable": "beta",
+            "Index": null,
+            "Description": "Total Plasma Beta"
+        },
+        {
+            "Variable": "plhthresh",
+            "Index": null,
+            "Description": "L-H Threshold"
+        },
+        {
+            "Variable": "ralpne",
+            "Index": 109,
+            "Description": "Thermal Alpha Density/Electron Density"
+        },
+        {
+            "Variable": "t_alpha_confinement",
+            "Index": null,
+            "Description": "Alpha Particle Confinement Time"
+        },
+        {
+            "Variable": "t_energy_confinement",
+            "Index": null,
+            "Description": "Global Thermal Energy Confinement Time"
+        },
+        {
+            "Variable": "d_vv_in",
+            "Index": null,
+            "Description": "Vacuum vessel inboard thickness (m)."
+        },
+        {
+            "Variable": "shldith",
+            "Index": 93,
+            "Description": "Inboard shield thickness (m)."
+        },
+        {
+            "Variable": "blnkith",
+            "Index": null,
+            "Description": "Inboard blanket thickness (m)."
+        },
+        {
+            "Variable": "shldoth",
+            "Index": 94,
+            "Description": "Outboard shield thickness (m)."
+        },
+        {
+            "Variable": "alphan",
+            "Index": null,
+            "Description": "Density profile index."
+        },
+        {
+            "Variable": "alphat",
+            "Index": null,
+            "Description": "Temperature profile index."
+        },
+        {
+            "Variable": "fgwped",
+            "Index": null,
+            "Description": "Fraction of Greenwald density to set as pedestal-top density."
+        },
+        {
+            "Variable": "teped",
+            "Index": null,
+            "Description": "Electron temperature of pedestal (keV)."
+        },
+        {
+            "Variable": "tmargmin",
+            "Index": null,
+            "Description": "Min allowable temperature margin for TF/CS coils (K)."
+        },
+        {
+            "Variable": "thicndut",
+            "Index": null,
+            "Description": "Conduit insulation thickness (m)."
+        },
+        {
+            "Variable": "tinstf",
+            "Index": null,
+            "Description": "Thickness of ground insulation layer (m)."
+        },
+        {
+            "Variable": "gapomin",
+            "Index": null,
+            "Description": "Min gap between outboard vacuum vessel and TF coil (m)."
+        }
+    ],
+    "Control Variables": [
+        {
+            "Variable": "fvsbrnni",
+            "Index": null,
+            "Description": "Fraction of Ip from Non-Inductive Means"
+        },
+        {
+            "Variable": "pinjmw",
+            "Index": null,
+            "Description": "Total Aux Injected Power"
+        },
+        {
+            "Variable": "f_tritium",
+            "Index": null,
+            "Description": "Tritium Fraction in Fuel"
+        },
+        {
+            "Variable": "fimp(13)",
+            "Index": 135,
+            "Description": "Xenon Impurity Concentration"
+        },
+        {
+            "Variable": "fimp(09)",
+            "Index": null,
+            "Description": "Argon Impurity Concentration"
+        },
+        {
+            "Variable": "kappa",
+            "Index": null,
+            "Description": "Plasma Elongation"
+        },
+        {
+            "Variable": "triang",
+            "Index": null,
+            "Description": "Plasma Triangularity"
+        },
+        {
+            "Variable": "bt",
+            "Index": 2,
+            "Description": "Magnetic Field TF"
+        },
+        {
+            "Variable": "coheof",
+            "Index": null,
+            "Description": "CS Current Density EOF"
+        },
+        {
+            "Variable": "fcohbop",
+            "Index": null,
+            "Description": "Fraction of CS Cur. Den. BOP/EOF"
+        },
+        {
+            "Variable": "pinjalw",
+            "Index": null,
+            "Description": "Max allowable injected power (MW)."
+        },
+        {
+            "Variable": "gamma_ecrh",
+            "Index": null,
+            "Description": "User input ECRH gamma (1.0e20 A/(W m²))."
+        }
+    ],
+    "Design Parameters": [
+        {
+            "Variable": "alstroh",
+            "Index": null,
+            "Description": "Max Hoop Stress in CS"
+        },
+        {
+            "Variable": "sig_tf_case_max",
+            "Index": null,
+            "Description": "Max Shear Stress TF Coil Case"
+        },
+        {
+            "Variable": "sig_tf_wp_max",
+            "Index": null,
+            "Description": "Max Shear Stress TF Coil Conduit"
+        },
+        {
+            "Variable": "n_cycle_min",
+            "Index": null,
+            "Description": "Min CS Stress Cycles"
+        },
+        {
+            "Variable": "jwdgcrt",
+            "Index": null,
+            "Description": "Max Critical Current Density WP"
+        },
+        {
+            "Variable": "vdalw",
+            "Index": null,
+            "Description": "Max Voltage Across TF Coil During Quench"
+        },
+        {
+            "Variable": "walalw",
+            "Index": null,
+            "Description": "Max Neutron Wall Load"
+        },
+        {
+            "Variable": "jwdgpro",
+            "Index": null,
+            "Description": "Max TF Coil Winding Pack Cur. Dens for Dump Temp"
+        },
+        {
+            "Variable": "cpttf_max",
+            "Index": null,
+            "Description": "Max TF Coil Current Per Turn"
+        },
+        {
+            "Variable": "max_vv_stress",
+            "Index": null,
+            "Description": "Max VV Stress"
+        },
+        {
+            "Variable": "tmargmin_tf",
+            "Index": null,
+            "Description": "Min Temperature Margin TF"
+        },
+        {
+            "Variable": "tmargmin_cs",
+            "Index": null,
+            "Description": "Min Temperature Margin CS"
+        },
+        {
+            "Variable": "f_alpha_energy_confinement_min",
+            "Index": null,
+            "Description": "Lower limit on the ratio of Alpha Particle to Energy Confinement Times"
+        },
+        {
+            "Variable": "ssync",
+            "Index": null,
+            "Description": "Synchrotron Radiation"
+        },
+        {
+            "Variable": "pdivt",
+            "Index": null,
+            "Description": "Power Through Separatrix"
+        },
+        {
+            "Variable": "hfact",
+            "Index": 10,
+            "Description": "H98 Scaling Factor"
+        },
+        {
+            "Variable": "fimp(2)",
+            "Index": null,
+            "Description": "Helium Content"
+        },
+        {
+            "Variable": "fimp(14)",
+            "Index": null,
+            "Description": "Tungsten Content"
+        },
+        {
+            "Variable": "dnbeta",
+            "Index": null,
+            "Description": "Troyon-like coefficient for beta scaling."
+        },
+        {
+            "Variable": "gamma",
+            "Index": null,
+            "Description": "Ejima coefficient for resistive startup V-S formula."
+        },
+        {
+            "Variable": "plasma_res_factor",
+            "Index": null,
+            "Description": "Plasma resistivity pre-factor."
+        },
+        {
+            "Variable": "zeffdiv",
+            "Index": null,
+            "Description": "Zeff in the divertor region."
+        }
+    ]
+}
