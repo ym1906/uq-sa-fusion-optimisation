@@ -1,0 +1,305 @@
+{
+    "falpha": [
+        "ptripv",
+        "piepv",
+        "palpipv"
+    ],
+    "fdene": [
+        "dnelimt",
+        "dene"
+    ],
+    "fbeta": [
+        "epbetmax",
+        "eps",
+        "betap"
+    ],
+    "fwalld": [
+        "walalw",
+        "wallmw"
+    ],
+    "ffuspow": [
+        "powfmax",
+        "powfmw"
+    ],
+    "fvs": [
+        "vstot",
+        "vsstt"
+    ],
+    "ftburn": [
+        "tburn",
+        "tbrnmn"
+    ],
+    "flhthresh": [
+        "plhthresh",
+        "pdivt"
+    ],
+    "fpnetel": [
+        "pnetelmw",
+        "pnetelin"
+    ],
+    "fradpwr": [
+        "pradpv"
+    ],
+    "fhldiv": [
+        "hldivlim",
+        "hldiv"
+    ],
+    "fmva": [
+        "mvalim"
+    ],
+    "fportsz": [
+        "rtanmax",
+        "rtanbeam"
+    ],
+    "frminor": [
+        "rminor",
+        "aplasmin"
+    ],
+    "fdivcol": [
+        "rlenmax",
+        "rlclolcn"
+    ],
+    "fcwr": [
+        "cwrmax",
+        "rminor"
+    ],
+    "fbetatry": [
+        "betalim",
+        "beta",
+        "btot",
+        "bt"
+    ],
+    "fpeakb": [
+        "bmxlim",
+        "bmaxtf"
+    ],
+    "fjohc": [
+        "rjohc",
+        "coheof"
+    ],
+    "fjohc0": [
+        "rjohc0",
+        "cohbop"
+    ],
+    "fqval": [
+        "bigq",
+        "bigqmin"
+    ],
+    "fpinj": [
+        "pinjalw",
+        "pinjmw"
+    ],
+    "fstrcase": [
+        "sig_tf_case_max",
+        "sig_tf_case"
+    ],
+    "fstrcond": [
+        "sig_tf_wp_max",
+        "sig_tf_wp"
+    ],
+    "fiooic": [
+        "jwdgcrt",
+        "jwptf"
+    ],
+    "fvdump": [
+        "vdalw",
+        "vtfskv"
+    ],
+    "fjprot": [
+        "jwdgpro",
+        "jwptf"
+    ],
+    "ftmargtf": [
+        "tmargtf",
+        "tmargmin_tf"
+    ],
+    "fgamcd": [
+        "gammax",
+        "gamcd"
+    ],
+    "ftpeak": [
+        "tfwmatmax",
+        "tpeak"
+    ],
+    "fauxmn": [
+        "pinjmw",
+        "auxmin"
+    ],
+    "ftohs": [
+        "tohs",
+        "tohsmn"
+    ],
+    "ftcycl": [
+        "tcycle",
+        "tcycmn"
+    ],
+    "fptemp": [
+        "ptempalw",
+        "tcpmax"
+    ],
+    "fq": [
+        "q",
+        "qlim"
+    ],
+    "fipir": [
+        "ritfc",
+        "plasma_current"
+    ],
+    "fbetap": [
+        "betpmx",
+        "betap"
+    ],
+    "frrmax": [
+        "rrmax",
+        "reprat"
+    ],
+    "fvssu": [
+        "vsres",
+        "vsind",
+        "vssu"
+    ],
+    "ftbr": [
+        "tbr",
+        "tbrmin"
+    ],
+    "fflutf": [
+        "nflutfmax",
+        "nflutf"
+    ],
+    "fptfnuc": [
+        "ptfnucmax",
+        "ptfnucpm3"
+    ],
+    "fpsepr": [
+        "pseprmax",
+        "pdivt",
+        "rmajor"
+    ],
+    "fnbshinef": [
+        "nbshinefmax",
+        "nbshinef"
+    ],
+    "ftmargoh": [
+        "tmargoh",
+        "tmargmin_cs"
+    ],
+    "favail": [
+        "cfactr",
+        "avail_min"
+    ],
+    "ftaulimit": [
+        "taup",
+        "taueff",
+        "taulimit"
+    ],
+    "fniterpump": [
+        "n_tf",
+        "niterpump"
+    ],
+    "fzeffmax": [
+        "zeffmax",
+        "zeff"
+    ],
+    "fmaxvvstress": [
+        "max_vv_stress",
+        "vv_stress_quench"
+    ],
+    "fpoloidalpower": [
+        "maxpoloidalpower",
+        "peakpoloidalpower"
+    ],
+    "fradwall": [
+        "maxradwallload",
+        "peakradwallload"
+    ],
+    "fpsepbqar": [
+        "psepbqarmax",
+        "pdivt",
+        "bt",
+        "q95",
+        "aspect",
+        "rmajor"
+    ],
+    "foh_stress": [
+        "alstroh",
+        "s_tresca_oh"
+    ],
+    "fplhsep": [
+        "pdivt",
+        "plhthresh",
+        "pinjmw"
+    ],
+    "fcqt": [
+        "tmax_croco",
+        "croco_quench_temperature"
+    ],
+    "f_coppera_m2": [
+        "copperA_m2_max",
+        "copperA_m2"
+    ],
+    "fnesep": [
+        "nesep_crit",
+        "nesep"
+    ],
+    "fcpttf": [
+        "cpttf_max",
+        "cpttf"
+    ],
+    "freinke": [
+        "fzactual",
+        "fzmin"
+    ],
+    "fzactual": [
+        "freinke",
+        "fzmin"
+    ],
+    "fzmin": [
+        "freinke",
+        "fzactual"
+    ],
+    "fbmaxcs": [
+        "bmaxcs_lim",
+        "bmaxoh",
+        "bmaxoh0"
+    ],
+    "fpdivlim": [
+        "pdivt"
+    ],
+    "fne0": [
+        "ne0",
+        "neped"
+    ],
+    "ftoroidalgap": [
+        "toroidalgap",
+        "tftort"
+    ],
+    "f_avspace": [
+        "available_radial_space",
+        "required_radial_space"
+    ],
+    "fbetatry_lower": [
+        "beta",
+        "betaft",
+        "betalim_lower"
+    ],
+    "f_crypmw": [
+        "crypmw_max",
+        "crypmw"
+    ],
+    "fstr_wp": [
+        "str_wp_max",
+        "str_wp"
+    ],
+    "f_copperaoh_m2": [
+        "copperaoh_m2_max",
+        "copperaoh_m2"
+    ],
+    "fncycle": [
+        "n_cycle",
+        "n_cycle_min"
+    ],
+    "fecrh_ignition": [
+        "powerht_constraint",
+        "powerscaling_constraint"
+    ]
+}
